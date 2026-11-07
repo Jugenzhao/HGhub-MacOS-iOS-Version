@@ -34,6 +34,7 @@
 }
 .plat-windows { --r-sm: 4px; --r-md: 8px; --r-lg: 8px; --r-ctl: 4px; --nav-h: 0px; }
 .plat-macos { --r-sm: 6px; --r-md: 10px; --r-lg: 12px; --r-ctl: 6px; --nav-h: 0px; }
+.plat-ios { --r-sm: 10px; --r-md: 14px; --r-lg: 18px; --r-ctl: 999px; -webkit-touch-callout: none; }
 html.theme-light {
   color-scheme: light;
   --p-canvas: #f3f3f3;
