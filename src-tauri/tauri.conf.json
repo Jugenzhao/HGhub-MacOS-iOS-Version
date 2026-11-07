@@ -44,7 +44,7 @@
       "minSdkVersion": 24
     },
     "iOS": {
-      "developmentTeam": ""
+      "developmentTeam": "ABCDE12345"
     }
   }
 }

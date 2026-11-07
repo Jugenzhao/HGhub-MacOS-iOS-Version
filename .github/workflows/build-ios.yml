@@ -10,6 +10,10 @@ jobs:
   ios:
     name: iOS Build (IPA)
     runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      APPLE_DEVELOPMENT_TEAM: "ABCDE12345"
     steps:
       - uses: actions/checkout@v4
 
@@ -48,16 +52,20 @@ jobs:
 
       - name: 初始化 iOS Xcode 工程
         run: |
-          pnpm tauri ios init
+          pnpm tauri ios init --ci || pnpm tauri ios init
+        env:
+          APPLE_DEVELOPMENT_TEAM: "ABCDE12345"
 
       - name: 构建 iOS 应用与打包 IPA
         shell: bash
+        env:
+          APPLE_DEVELOPMENT_TEAM: "ABCDE12345"
         run: |
           V="${{ steps.ver.outputs.version }}"
           mkdir -p artifacts
           
           # 构建 release 模式的无证书 IPA / APP
-          pnpm tauri ios build --no-signing || true
+          pnpm tauri ios build --no-signing --target aarch64-apple-ios || pnpm tauri ios build --no-signing || true
           
           APP_PATH=$(find src-tauri/gen/apple -name "*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
@@ -100,3 +108,22 @@ jobs:
           name: HGhub-iOS-IPA
           path: artifacts/*
           if-no-files-found: error
+
+      - name: 发布 iOS GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          TAG="v${V}-ios"
+          gh release create "$TAG" artifacts/*.ipa \
+            --title "HGhub v${V} iOS 版" \
+            --notes "### HGhub iOS 移动端安装包 (IPA)
+          
+本安装包为 HGhub v${V} 的 iOS 客户端打包产物（.ipa），专为 iPhone / iPad 用户提供。
+
+#### 安装方式说明：
+1. **TrollStore（巨魔商店，推荐）**：支持系统版本范围内的设备，直接打开 IPA 导入即可免签永久运行；
+2. **AltStore / Sideloadly**：连接电脑使用个人免费 Apple ID 自签名安装（7天刷新）；
+3. **第三方证书签名**：支持使用牛蛙助手、全能签、轻松签或个人/企业开发者证书签名安装。" \
+            --prerelease || gh release upload "$TAG" artifacts/*.ipa --clobber
