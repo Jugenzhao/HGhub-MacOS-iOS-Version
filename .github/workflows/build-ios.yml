@@ -67,9 +67,9 @@ jobs:
           # 1. 确保前端编译产物就绪
           pnpm build
 
-          # 2. 执行 Tauri iOS 自动化构建（免证书签名）
-          echo "=== 执行 Tauri iOS 构建 (--no-sign) ==="
-          pnpm tauri ios build --no-sign --ci || true
+          # 2. 执行 Tauri iOS 自动化构建（免证书签名，激活 custom-protocol 确保为生产打包模式）
+          echo "=== 执行 Tauri iOS 构建 (--no-sign --features custom-protocol) ==="
+          pnpm tauri ios build --no-sign --ci --features custom-protocol || true
 
           # 3. 检查是否已直接生成 IPA
           IPA_PATH=$(find src-tauri/gen/apple -name "*.ipa" 2>/dev/null | head -n 1 || true)
@@ -114,6 +114,20 @@ jobs:
           if [ -s "artifacts/HGhub_${V}_ios.ipa" ]; then
             echo "=== IPA 打包成功 ==="
             ls -lh artifacts/
+
+            # 5. 校验 IPA 是否为真正的生产包（验证不含 localhost:1420 且静态资源嵌入）
+            echo "=== 校验生产包模式 ==="
+            mkdir -p /tmp/verify_ipa
+            unzip -q -o "artifacts/HGhub_${V}_ios.ipa" -d /tmp/verify_ipa
+            BIN_PATH=$(find /tmp/verify_ipa -type f -name "HGhub" | head -n 1 || true)
+            if [ -n "$BIN_PATH" ]; then
+              if strings "$BIN_PATH" | grep -q "localhost:1420"; then
+                echo "::error::警告：构建产物依然包含 localhost:1420，处于 dev 模式！"
+                exit 1
+              fi
+              echo "=== 生产模式校验通过：未包含 devUrl，静态前端资源已内置 ==="
+            fi
+            rm -rf /tmp/verify_ipa
           else
             echo "::error::未能生成有效的 iOS IPA 文件"
             exit 1
