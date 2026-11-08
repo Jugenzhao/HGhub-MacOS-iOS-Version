@@ -1,5 +1,6 @@
 {
-  "name": "huangguo-client",
+  "name": "hghub-macos-ios",
+  "description": "HGhub · 黄果短剧跨平台客户端 (macOS & iOS 增强版)",
   "private": true,
   "version": "1.1.0",
   "license": "PolyForm-Noncommercial-1.0.0",

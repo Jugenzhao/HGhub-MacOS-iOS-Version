@@ -1,149 +1,157 @@
 <div align="center">
 
-# HGhub
+# HGhub (macOS & iOS 增强版)
 
-**黄果短剧第三方客户端 · Rust + Tauri 2**
+**黄果短剧跨平台第三方客户端 · Rust + Tauri 2**
 
-Windows / macOS / Android 三端 · Fluent 设计 · 沉浸式竖屏播放
+**iOS (`.ipa`) / macOS (`Apple Silicon & Intel .dmg`) / Windows / Android 全平台支持**  
+Fluent & Apple 原生沉浸设计 · 竖屏无限刷剧流 · 触控手势与原生横屏全屏
+
+[![GitHub Releases](https://img.shields.io/github/v/release/LNPANDY/HGhub-MacOS-iOS-Version?include_prereleases&label=Release&color=blue)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
+[![Platform](https://img.shields.io/badge/Platform-iOS%20%7C%20macOS%20%7C%20Windows%20%7C%20Android-success)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
+[![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)](LICENSE)
+
+[📥 下载 iOS 版 (.ipa)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.1.0-ios) · [💻 下载 macOS 版 (.dmg)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.1.0-macos) · [📦 查看全部 Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
 
 </div>
 
-> ⚠️ 本项目仅供 **学习与技术交流**，不提供、不存储、不分发任何音视频内容。
+---
+
+> ⚠️ 本项目仅供 **学习与技术交流**，不提供、不存储、不分发任何音视频内容。  
 > 所有内容均来自第三方站点，版权归原作者与上游站点所有。
 
-**使用须知**
+---
 
-- **以访客身份正常使用**：像普通访客一样浏览就好，请勿滥用本项目。
-- **不要给上游增加压力**：本项目本身不提供下载功能，请勿改动代码去做批量下载 / 批量抓取，也不要高频轮询、并发轰炸接口或挂机刷播放量；内置的封面与播放列表缓存请不要改小或关掉。
-- **尊重上游版权**：不要去除水印与站点标识，不要把剧集搬运、转码、修改后二次分发到别处（网盘、资源站、其他 App 等），更不能改完拿出去出售。
-- **不要公开传播接口与直链**：接口地址、播放直链、解密方式请勿公开张贴或打包成「资源站」——上游一旦封禁，所有人都没法再用。
-- **不要商业化**：禁止打包出售、接入广告 / 会员 / 付费点播，或作为收费服务的一部分分发（详见 [LICENSE](LICENSE)）。
-- **合理使用**：仅供个人学习、研究与自用；请在 24 小时内删除相关资源，并支持正版。
-- **遵守当地法律**：使用者应自行判断并承担合规责任。
+## ✨ 核心功能与亮点
 
-> ⚖️ 许可证自 v1.1.0 版本起改为 **PolyForm Noncommercial 1.0.0**：**禁止任何商业用途**——
-> 包括打包出售、接入付费/会员/广告变现、作为收费产品或服务的一部分分发。
-> 个人学习、研究、自用与非营利使用不受限制，详见 [LICENSE](LICENSE)。
+### 📱 1. iOS 移动端深度适配与专属手势（全新）
+- **原生横竖屏智能切换**：
+  - 观看横屏（16:9）视频时点击「横屏全屏」，直接调用 iOS 原生 `UIWindowScene` 旋转系统屏幕方向；
+  - 支持**手机物理横置自动进入横屏全屏、竖回自动退出**，采用独立固定舞台层渲染，横竖屏切换零错位、不闪封面、不断流。
+- **双指自由缩放与拖拽平移（Pinch-to-Zoom）**：
+  - 竖屏下观看横屏视频时，支持 `1.0x ~ 4.0x` 双指无级放大与画面平移；
+  - 内置快捷胶囊按钮，一键切换 **「放大铺满 / 完整适应 / 还原缩放」**。
+- **直觉化触控手势体系**：
+  - **单击屏幕**：清屏模式（一键隐藏所有操作按钮与底部渐变遮罩，只留纯粹视频画面；再次单击恢复）；
+  - **双击屏幕**：快速暂停 / 继续播放；
+  - **长按屏幕 + 上滑锁定**：长按画面开启 `2.0x` 倍速播放，按住向上滑动即可**锁定 `2.0x` 倍速**，松手也能持续倍速观看；
+  - **左右横滑调节进度**：在屏幕任意区域左右滑动即可实时预览时间点并精准跳转。
+- **iOS HLS 播放引擎专项加固**：
+  - 针对 iOS `WKWebView` 优化自定义协议流媒体传输，内置内存级 AES Key 与分片缓存；
+  - 具备网络抖动与拖动进度条后的自动重连/解码器自愈恢复机制；
+  - 全屏/旋转过渡期持续保活（`keepPlayingThroughTransition`）+ 片尾双保险自动连播下一集。
 
+### 💻 2. macOS 桌面端原生体验
+- **全架构原生编译支持**：同时提供 **Apple Silicon (`arm64`，M1/M2/M3/M4)**、**Intel (`x64`)** 以及 **Universal 通用双架构** `.dmg` 安装包与 `.app.tar.gz` 免安装版。
+- **macOS 原生窗口融合**：采用系统 Overlay 沉浸式标题栏，完美适配 macOS 红绿灯窗口控制键与原生全屏切换。
+- **桌面端效率特性**：支持**影院模式（Theater Mode）**、**画中画（PiP）**、右侧停靠式选集/评论面板，以及全局键盘快捷键（`1~4` 切换导航栏、`/` 快速搜索、`Esc` 返回）。
 
-## 官方渠道与仿冒提醒
+### 🎬 3. 全站内容与互动体验
+- **沉浸式上下滑刷剧流（Feed）**：首页无限流推荐，上下滑动秒切剧集。
+- **全分类 / 三大榜单 / 搜索**：支持按题材分类筛选，「热门 / 推荐 / 潜力」三大榜单实时同步，支持关键词搜索。
+- **吃瓜社区（图文 + 视频帖）**：支持浏览社区吃瓜帖、图文混排正文解析（图片自动走本地解密代理）及内嵌视频播放。
+- **账号与本地双轨记录**：支持账号登录/注册、点赞、收藏、关注作者、评论互动，同时自动保存本地观看历史与分集续播进度。
 
-- **唯一官方仓库**：[github.com/Minireel/HGhub](https://github.com/Minireel/HGhub)
-- **唯一下载渠道**：[GitHub Releases](https://github.com/Minireel/HGhub/releases)。仓库源码页不放任何可执行文件，
-  其余网站、网盘、QQ 群、公众号、第三方下载站分发的「HGhub」安装包**一律非官方**，作者不保证其安全性与完整性。
+### 🌐 4. 多线路与镜像防失联系统
+- **内置主备线路 + 自动抓取最新镜像**：支持在「设置 → 线路」中一键从发布页拉取最新可用镜像域名。
+- **并发延迟测速**：一键探测所有线路连通性与响应耗时，切换后立即生效并持久化保存。
+- **网络环境自愈**：当系统代理切换或上游偶发 TLS 抖动时，自动重建连接池并重试。
 
-> 🚫 **已发现的恶意修改版**：[`hichuv/HGhub`](https://github.com/hichuv/HGhub)
->
-> 该仓库与本项目无关，是在旧版本源码基础上擅自加入**卡密验证、VIP 付费解锁**等变现功能的修改版，
-> 代码改动不透明、安全性无法验证。**请勿下载、勿注册、勿付费**；如已安装，建议立即卸载，改用官方 Release 包安装。
->
-> 本项目**从未、也不会**加入任何卡密 / VIP / 付费解锁 / 广告功能。如果你遇到的「HGhub」要求输入卡密或付费开通，那一定不是官方版本。
+---
 
+## 📥 下载与安装指南
 
-## 技术栈
+请前往本项目 **[GitHub Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)** 页面下载对应平台安装包：
 
-| 层 | 选型 |
+### 📱 iOS 版安装说明（`HGhub_x.x.x_ios.ipa`）
+本仓库发布的 `.ipa` 为无证书编译包（已内置完整前端生产资源，非 dev 调试包），支持以下任意方式安装到 iPhone / iPad：
+1. **TrollStore（巨魔商店）**：直接下载 `.ipa` 后通过巨魔导入即可永久安装（推荐 iOS 14.0 ~ 17.0 巨魔设备）。
+2. **AltStore / SideStore / Sideloadly**：在电脑端使用个人免费 Apple ID 自签安装。
+3. **轻松签（ESign）/ 牛蛙助手 / Feather / 全能签**：导入个人证书或企业证书签名后直接安装。
+
+### 💻 macOS 版安装说明（`HGhub_x.x.x_*.dmg`）
+- **M1 / M2 / M3 / M4 芯片 Mac**：推荐下载 `HGhub_x.x.x_arm64.dmg`
+- **Intel 芯片 Mac**：推荐下载 `HGhub_x.x.x_x64.dmg`
+- **通用版（全机型兼容）**：可下载 `HGhub_x.x.x_universal.dmg`
+
+> **💡 macOS 首次打开提示「已损坏」或「无法验证开发者」的解决方法：**  
+> 由于开源个人构建未接入 Apple 付费开发者公证（Notarization），将 `HGhub.app` 拖入「应用程序（Applications）」后，请在「终端（Terminal）」中执行以下命令清除隔离属性即可正常打开：
+> ```bash
+> sudo xattr -rd com.apple.quarantine /Applications/HGhub.app
+> ```
+
+---
+
+## 🛠️ 技术栈与项目结构
+
+| 层级 | 技术选型 |
 | --- | --- |
-| 壳 | Tauri 2（Rust 1.9x） |
-| 前端 | React 19 + TypeScript + Vite 7 + Tailwind CSS 4 |
-| 播放 | hls.js（HLS / AES-128） |
-| 网络 | reqwest + rustls |
+| 跨平台宿主 | Tauri 2（Rust 1.9x，支持 iOS / macOS / Windows / Android） |
+| 前端界面 | React 19 + TypeScript + Vite 7 + Tailwind CSS 4 |
+| 视频引擎 | hls.js + 原生 HLS（AES-128 加密流 + 分片/Key 内存缓存 + 自动重连恢复） |
+| 网络与解密 | reqwest + rustls + AES-128-CBC 封面实时解密 |
+| CI/CD | GitHub Actions（全自动构建 macOS 三架构 DMG 与 iOS 免签 IPA 并发布 Release） |
 
-## 目录
-
-```
+```text
 .
-├─ src/                      前端
-│  ├─ api.ts                 接口封装 + 本地媒体协议 URL
-│  ├─ store.tsx              全局状态（导航栈 / 用户 / 本地收藏 / 主题）
-│  ├─ html.ts                吃瓜正文清洗与图片代理
-│  ├─ components/            Feed（播放页）/ VideoSurface / PlayerControls / Panels / UI
-│  └─ pages/                 Home / Search / Category / Profile / Posts
-├─ src-tauri/                Rust 后端
+├─ .github/workflows/
+│  ├─ build-ios.yml          iOS IPA 自动化编译、生产模式校验与 Release 发布工作流
+│  └─ build-macos.yml        macOS (arm64 / x64 / universal) DMG 自动化构建与发布工作流
+├─ src/                      前端源码
+│  ├─ api.ts                 接口封装 + 跨平台本地媒体协议 URL (hg://localhost)
+│  ├─ store.tsx              全局状态（导航栈 / 用户 / 本地收藏 / 历史 / 全屏与清屏状态）
+│  ├─ html.ts                吃瓜正文清洗与加密图片代理
+│  ├─ components/            Feed（沉浸播放流）/ VideoSurface / PlayerControls / Panels / UI
+│  └─ pages/                 Home / Search / Category / Profile / Posts / Settings
+├─ src-tauri/                Rust 后端源码
 │  └─ src/
-│     ├─ net.rs              请求层（边缘信封 + 重试）
-│     ├─ api.rs              业务命令
-│     ├─ media.rs            封面解密 + HLS 代理 + 缓存
-│     └─ session.rs          token 持久化
+│     ├─ net.rs              网络层（统一边缘信封 + TLS 重试 + 代理自愈）
+│     ├─ api.rs              业务命令 + iOS 原生屏幕方向旋转控制 (UIWindowScene)
+│     ├─ lines.rs            固定线路与发布页镜像自动探测
+│     ├─ media.rs            AES-128-CBC 封面解密 + HLS m3u8/Key/分片代理与内存缓存
+│     └─ session.rs          登录会话持久化
 └─ docs/API.md               接口文档
 ```
 
-## 开发 / 构建
+---
 
+## 🚀 本地开发与构建
+
+### 1. 安装依赖与桌面端开发
 ```bash
-pnpm install          # 首次安装
-pnpm app:dev          # 桌面端热重载
-pnpm app:build        # 打包：Windows → NSIS 安装程序；macOS → .app + .dmg
+pnpm install          # 安装前端依赖
+pnpm app:dev          # 启动桌面端热重载开发模式
+pnpm app:build        # 构建桌面端安装包（macOS → .app + .dmg；Windows → NSIS）
 ```
 
-macOS 先装 Xcode Command Line Tools（`xcode-select --install`），打包目标写在
-`src-tauri/tauri.macos.conf.json`（`app` + `dmg`，窗口用系统标题栏 Overlay）。
-
-Android（需 Android SDK + NDK，并配置 `ANDROID_HOME` / `NDK_HOME`）：
-
+### 2. macOS 指定架构打包
 ```bash
-pnpm android:init     # 首次生成 android 工程
+pnpm tauri build --config src-tauri/tauri.macos.conf.json --target aarch64-apple-darwin
+pnpm tauri build --config src-tauri/tauri.macos.conf.json --target x86_64-apple-darwin
+pnpm tauri build --config src-tauri/tauri.macos.conf.json --target universal-apple-darwin
+```
+
+### 3. iOS 构建与免签 IPA 打包（需 macOS + Xcode）
+```bash
+pnpm ios:init         # 首次生成 iOS Xcode 工程 (src-tauri/gen/apple)
+pnpm build            # 编译前端静态资源
+pnpm tauri ios build --no-sign --ci --features custom-protocol
+```
+> **注意**：构建 iOS 生产包时必须显式传入 `--features custom-protocol`，确保 Tauri 将 `dist/` 前端静态资源编译内嵌至二进制文件中，而非连接 `localhost:1420` 开发服务器。
+
+### 4. Android 构建（需 Android SDK + NDK）
+```bash
+pnpm android:init     # 首次生成 Android 工程
 pnpm android:dev      # 真机 / 模拟器调试
-pnpm android:build    # 产出 APK
+pnpm android:build    # 构建 APK
 ```
 
-### 环境注意
+---
 
-- 工程若放在 **exFAT** 盘（不支持符号链接），需保留 `.npmrc` 中的 `node-linker=hoisted`。
-- pnpm 10 靠 `package.json` 的 `pnpm.onlyBuiltDependencies` 放行 `esbuild`，否则 `vite build` 缺少二进制；
-  pnpm 11 起该字段失效，白名单改在 `pnpm-workspace.yaml` 的 `allowBuilds`（两处都保留）。
+## 📌 使用须知与免责声明
 
-## 实现要点
-
-1. **统一边缘信封**：站点把 `/api/**` 收敛为 `POST /api/edge/request`（`method/path/body(base64)/content_type` + `Authorization: Bearer`），本项目只对接这一个入口，无需处理 Cookie。
-2. **封面解密**：封面为 AES-128-CBC 密文，Rust 侧解密后经自定义协议输出，前端 `<img>` 直接使用。
-3. **HLS 代理**：m3u8 与分片经自定义协议转发并改写 `#EXT-X-KEY` / 分片地址，绕开 WebView 的 CORS 与防盗链。
-4. **自定义协议**：Windows / Android 为 `http://hg.localhost/*`，macOS 为 `hg://localhost/*`（Tauri 的平台差异）。
-   Rust 侧 `lib.rs` 与前端 `api.ts` 各自按平台生成一次基址，两处必须一致，否则封面与视频全部加载失败。
-5. **不做签名逆向**：只复用浏览器同源行为，接口字段均有文档与实测样本。
-
-
-## 免责声明
-
-- 本项目与内容提供方无任何关联，作者不参与内容的制作、上传与分发。
-- 本项目仅在上述官方渠道发布；任何第三方修改版（尤其是加卡密、VIP 变现的版本）均与作者无关，请自行甄别。
-- 使用者应自行遵守所在地法律法规；因使用本项目产生的任何后果由使用者自行承担。
-- 若相关权利方认为本项目存在侵权，请通过 Issue 联系，我们会及时处理。
-
-## License
-
-[PolyForm Noncommercial License 1.0.0](LICENSE) —— **仅限非商业用途**。
-
-- **允许**：个人学习、研究、自用、爱好项目，以及在非营利组织内部使用；可以自由修改、二次开发。
-- **禁止**：任何商业用途。包括但不限于打包出售、接入付费/会员/广告变现、作为收费服务或商业产品的一部分分发。
-- **保留声明**：分发本项目或其修改版时，必须附带本许可证全文（或上面的链接）以及 `Required Notice` 声明行。
-- 商业授权请通过 Issue 联系作者单独洽谈。
-
-> 历史说明：v1.0.1 及更早版本以 MIT 发布，已发出的副本继续按 MIT 授权；自 **v1.1.0** 起的新版本一律适用 PolyForm Noncommercial 1.0.0。
-
-## 常见问题
-
-**1. `pnpm install` 报 `ERR_PNPM_EISDIR ... symlink`**
-
-工程放在 exFAT / FAT32 盘时无法创建符号链接，保留 `.npmrc` 里的 `node-linker=hoisted` 即可。
-
-**2. `tauri android build` 报 `Failed to create a symbolic link ... jniLibs`**
-
-同样是 exFAT 不支持符号链接。可手动把 Rust 产物拷进 jniLibs，再直接跑 Gradle：
-
-```bash
-cp src-tauri/target/aarch64-linux-android/debug/libhuangguo_client_lib.so \
-   src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
-
-cd src-tauri/gen/android
-./gradlew assembleDebug        # Windows: gradlew.bat assembleDebug
-```
-
-产物在 `src-tauri/gen/android/app/build/outputs/apk/`。
-
-**3. Android 构建提示找不到 SDK / NDK**
-
-需要设置 `ANDROID_HOME`（Android SDK 根目录）、`NDK_HOME`（`$ANDROID_HOME/ndk/<版本>`）与 `JAVA_HOME`（JDK 17）。
-
-## LinuxDO
-https://linux.do/
+- **以访客身份正常使用**：像普通访客一样浏览即可，请勿滥用本项目。
+- **不要给上游增加压力**：本项目不提供批量下载功能，请勿改动代码去做批量抓取或高频并发请求；请保留内置的封面与播放分片缓存。
+- **不要商业化**：本项目遵循 [PolyForm Noncommercial License 1.0.0](LICENSE)，**严禁任何商业用途**（禁止打包出售、接入卡密/会员/广告变现或作为收费服务的一部分分发）。
+- **致谢**：本项目基于开源项目 [Minireel/HGhub](https://github.com/Minireel/HGhub) 进行 macOS 与 iOS 平台深度适配、播放稳定性加固与触控交互增强，并参考了 [stclock1988/hghub-ios](https://github.com/stclock1988/hghub-ios) 的全屏过渡保活与片尾连播机制。
+- **免责声明**：本项目与内容提供方无任何关联，作者不参与任何音视频内容的制作、上传与分发。使用者应自行遵守所在地法律法规，因使用本项目产生的任何后果由使用者自行承担。
