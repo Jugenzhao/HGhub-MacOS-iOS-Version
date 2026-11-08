@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
-import { fmtTime, playlist } from "../api";
+import { fmtTime, platform, playlist } from "../api";
 import { ICompress, IExpand, IPauseF, IPlayF, IVol, IVolMute } from "../icons";
 
 type Props = {
@@ -24,9 +24,11 @@ export default function Player({
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const recoverCountRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [time, setTime] = useState(0);
+  const [scrubPct, setScrubPct] = useState<number | null>(null);
   const [duration, setDuration] = useState(0);
   const [full, setFull] = useState(false);
   const [rate, setRate] = useState(1);
@@ -36,18 +38,26 @@ export default function Player({
     const video = videoRef.current;
     if (!video || !src) return;
     const url = playlist(src);
+    recoverCountRef.current = 0;
+    setErrMsg("");
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        enableWorker: true,
+        enableWorker: platform !== "ios",
         lowLatencyMode: false,
-        maxBufferLength: 24,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
         backBufferLength: 30,
+        maxBufferHole: 0.5,
+        nudgeOffset: 0.25,
+        nudgeMaxRetry: 6,
         manifestLoadingTimeOut: 20000,
-        manifestLoadingMaxRetry: 3,
-        fragLoadingMaxRetry: 4,
+        manifestLoadingMaxRetry: 4,
+        fragLoadingTimeOut: 25000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 400,
       });
       hlsRef.current = hls;
       hls.loadSource(url);
@@ -55,8 +65,30 @@ export default function Player({
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (autoPlay) video.play().catch(() => setPlaying(false));
       });
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        recoverCountRef.current = 0;
+        setErrMsg("");
+      });
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (!data.fatal) return;
+        if (!data.fatal) {
+          if (
+            data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR ||
+            data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR
+          ) {
+            try { hls.startLoad(video.currentTime || -1); } catch { /* ignore */ }
+          }
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoverCountRef.current < 4) {
+          recoverCountRef.current += 1;
+          try { hls.startLoad(video.currentTime || -1); } catch { /* ignore */ }
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoverCountRef.current < 4) {
+          recoverCountRef.current += 1;
+          try { hls.recoverMediaError(); video.play().catch(() => {}); } catch { /* ignore */ }
+          return;
+        }
         const detail = `${data.type}/${data.details}/${data.response?.code ?? ""}/${String(data.reason ?? "").slice(0, 80)}`;
         (window as unknown as { __hlsErr?: string }).__hlsErr = detail;
         setErrMsg(detail);
@@ -94,12 +126,17 @@ export default function Player({
     else video.pause();
   };
 
-  const onSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const commitSeek = (pctVal: number) => {
     const video = videoRef.current;
+    setScrubPct(null);
     if (!video || !duration) return;
-    const pct = Number(e.target.value) / 1000;
-    video.currentTime = pct * duration;
-    setTime(video.currentTime);
+    const target = Math.max(0, Math.min(duration - 0.15, (pctVal / 1000) * duration));
+    setWaiting(true);
+    if (hlsRef.current) {
+      try { hlsRef.current.startLoad(target); } catch { /* ignore */ }
+    }
+    try { video.currentTime = target; } catch { /* ignore */ }
+    setTime(target);
   };
 
   const cycleRate = () => {
@@ -117,7 +154,8 @@ export default function Player({
     else el.requestFullscreen().catch(() => {});
   };
 
-  const pct = duration > 0 ? (time / duration) * 100 : 0;
+  const pct = scrubPct !== null ? scrubPct / 10 : duration > 0 ? (time / duration) * 100 : 0;
+  const displayTime = scrubPct !== null && duration > 0 ? (scrubPct / 1000) * duration : time;
 
   return (
     <div ref={wrapRef} className={`relative bg-black overflow-hidden group ${className}`}>
@@ -125,14 +163,19 @@ export default function Player({
         ref={videoRef}
         poster={poster}
         playsInline
+        webkit-playsinline="true"
+        preload="auto"
         loop={loop}
         className="w-full h-full object-contain bg-black"
         onClick={toggle}
         onPlay={() => { setPlaying(true); onTogglePlay?.(true); }}
         onPause={() => { setPlaying(false); onTogglePlay?.(false); }}
         onWaiting={() => setWaiting(true)}
-        onPlaying={() => { setWaiting(false); onPlaying?.(); }}
-        onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
+        onPlaying={() => { setWaiting(false); setErrMsg(""); onPlaying?.(); }}
+        onSeeked={() => setWaiting(false)}
+        onTimeUpdate={(e) => {
+          if (scrubPct === null) setTime((e.target as HTMLVideoElement).currentTime);
+        }}
         onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration || 0)}
         onEnded={() => onEnded?.()}
       />
@@ -160,8 +203,18 @@ export default function Player({
 
       {controls && (
         <div className="absolute inset-x-0 bottom-0 px-3 pb-2 pt-8 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-          <input type="range" min={0} max={1000} value={Math.round(pct * 10)} onChange={onSeek}
-            className="hg-range w-full" style={{ "--fill": `${pct}%` } as React.CSSProperties} />
+          <input
+            type="range"
+            min={0}
+            max={1000}
+            value={Math.round(pct * 10)}
+            onChange={(e) => setScrubPct(Number(e.target.value))}
+            onPointerUp={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
+            onTouchEnd={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
+            onKeyUp={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
+            className="hg-range w-full"
+            style={{ "--fill": `${pct}%` } as React.CSSProperties}
+          />
           <div className="flex items-center gap-3 mt-1 text-white">
             <button onClick={toggle} aria-label={playing ? "暂停" : "播放"} className="pressable">
               {playing ? <IPauseF size={16} /> : <IPlayF size={16} />}
@@ -169,7 +222,7 @@ export default function Player({
             <button onClick={() => onToggleMute?.()} aria-label="静音" className="pressable">
               {muted ? <IVolMute size={16} /> : <IVol size={16} />}
             </button>
-            <span className="text-[11px] tabular-nums text-white/85">{fmtTime(time)} / {fmtTime(duration)}</span>
+            <span className="text-[11px] tabular-nums text-white/85">{fmtTime(displayTime)} / {fmtTime(duration)}</span>
             <div className="flex-1" />
             <button onClick={cycleRate} className="text-[11px] font-bold text-white/85 pressable tabular-nums">{rate}x</button>
             <button onClick={toggleFull} aria-label="全屏" className="pressable">

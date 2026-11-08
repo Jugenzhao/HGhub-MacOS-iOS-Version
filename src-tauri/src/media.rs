@@ -30,9 +30,16 @@ static IMG_CACHE: Lazy<Mutex<HashMap<String, Arc<Vec<u8>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static PL_CACHE: Lazy<Mutex<HashMap<String, Arc<String>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+static KEY_CACHE: Lazy<Mutex<HashMap<String, (String, Arc<Vec<u8>>)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static SEG_CACHE: Lazy<Mutex<HashMap<String, (String, Arc<Vec<u8>>)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 const IMG_CACHE_MAX: usize = 240;
 const PL_CACHE_MAX: usize = 60;
+const KEY_CACHE_MAX: usize = 120;
+const SEG_CACHE_MAX: usize = 36;
+const SEG_CACHE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 fn cache_put<V: Clone>(map: &Mutex<HashMap<String, V>>, key: String, val: V, max: usize) {
     let mut m = map.lock().unwrap();
@@ -137,36 +144,50 @@ fn absolutize(base: &str, target: &str) -> String {
     target.to_string()
 }
 
+fn is_m3u8_url(u: &str) -> bool {
+    let path = u.split('?').next().unwrap_or(u).to_ascii_lowercase();
+    path.ends_with(".m3u8")
+}
+
 fn rewrite_uri_attr(line: &str, prefix: &str) -> String {
-    // #EXT-X-KEY:...URI="xxx" / #EXT-X-MAP:URI="xxx"
+    // #EXT-X-KEY:...URI="xxx" / #EXT-X-MAP:URI="xxx" / #EXT-X-MEDIA:...URI="xxx"
     if let Some(start) = line.find("URI=\"") {
         let rest = &line[start + 5..];
         if let Some(end) = rest.find('"') {
             let uri = &rest[..end];
-            let new = format!("{prefix}/seg?u={}", enc(uri));
+            let route = if is_m3u8_url(uri) { "hls" } else { "seg" };
+            let new = format!("{prefix}/{route}?u={}", enc(uri));
             return format!("{}{}{}", &line[..start + 5], new, &rest[end..]);
         }
     }
     line.to_string()
 }
 
-/// 取 m3u8 并把 key / 分片地址改写到本地协议。
+/// 取 m3u8 并把 key / 子列表 / 分片地址改写到本地协议。
 pub async fn load_playlist(url: &str, prefix: &str) -> Result<Arc<String>, String> {
-    if let Some(hit) = PL_CACHE.lock().unwrap().get(url).cloned() {
+    let cache_key = format!("{prefix}|{url}");
+    if let Some(hit) = PL_CACHE.lock().unwrap().get(&cache_key).cloned() {
         return Ok(hit);
     }
     let (_, bytes) = fetch_bytes(url).await?;
     let text = String::from_utf8_lossy(&bytes).to_string();
 
     let mut out = String::with_capacity(text.len() + 512);
+    let mut expect_sub_playlist = false;
     for raw in text.lines() {
-        let line = raw.trim_end();
+        let line = raw.trim();
         if line.is_empty() {
             out.push('\n');
             continue;
         }
         if line.starts_with('#') {
-            if line.starts_with("#EXT-X-KEY") || line.starts_with("#EXT-X-MAP") {
+            if line.starts_with("#EXT-X-STREAM-INF") {
+                expect_sub_playlist = true;
+            }
+            if line.starts_with("#EXT-X-KEY")
+                || line.starts_with("#EXT-X-MAP")
+                || line.starts_with("#EXT-X-MEDIA")
+            {
                 // 先把相对 URI 绝对化再改写
                 let absolute = absolutize_uri_in_attr(url, line);
                 out.push_str(&rewrite_uri_attr(&absolute, prefix));
@@ -175,13 +196,19 @@ pub async fn load_playlist(url: &str, prefix: &str) -> Result<Arc<String>, Strin
             }
         } else {
             let absolute = absolutize(url, line);
-            out.push_str(&format!("{prefix}/seg?u={}", enc(&absolute)));
+            let route = if expect_sub_playlist || is_m3u8_url(&absolute) {
+                "hls"
+            } else {
+                "seg"
+            };
+            expect_sub_playlist = false;
+            out.push_str(&format!("{prefix}/{route}?u={}", enc(&absolute)));
         }
         out.push('\n');
     }
 
     let arc = Arc::new(out);
-    cache_put(&PL_CACHE, url.to_string(), arc.clone(), PL_CACHE_MAX);
+    cache_put(&PL_CACHE, cache_key, arc.clone(), PL_CACHE_MAX);
     Ok(arc)
 }
 
@@ -197,10 +224,41 @@ fn absolutize_uri_in_attr(base: &str, line: &str) -> String {
     line.to_string()
 }
 
-/// 清空封面 / 播放列表内存缓存
+/// 加载分片或 AES Key（带内存缓存，避免拖动进度条时重复拉取同一 Key 或分片导致卡顿）。
+pub async fn load_segment(url: &str) -> Result<(String, Arc<Vec<u8>>), String> {
+    if let Some(hit) = KEY_CACHE.lock().unwrap().get(url).cloned() {
+        return Ok(hit);
+    }
+    if let Some(hit) = SEG_CACHE.lock().unwrap().get(url).cloned() {
+        return Ok(hit);
+    }
+    let (ctype, bytes) = fetch_bytes(url).await?;
+    let mime = ctype.unwrap_or_else(|| {
+        let p = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
+        if p.ends_with(".ts") {
+            "video/mp2t".to_string()
+        } else if p.ends_with(".m4s") || p.ends_with(".mp4") {
+            "video/mp4".to_string()
+        } else {
+            "application/octet-stream".to_string()
+        }
+    });
+    let len = bytes.len();
+    let arc = Arc::new(bytes);
+    if len <= 65536 {
+        cache_put(&KEY_CACHE, url.to_string(), (mime.clone(), arc.clone()), KEY_CACHE_MAX);
+    } else if len <= SEG_CACHE_MAX_BYTES {
+        cache_put(&SEG_CACHE, url.to_string(), (mime.clone(), arc.clone()), SEG_CACHE_MAX);
+    }
+    Ok((mime, arc))
+}
+
+/// 清空封面 / 播放列表 / 分片内存缓存
 pub fn clear_caches() {
     if let Ok(mut g) = IMG_CACHE.lock() { g.clear(); }
     if let Ok(mut g) = PL_CACHE.lock() { g.clear(); }
+    if let Ok(mut g) = KEY_CACHE.lock() { g.clear(); }
+    if let Ok(mut g) = SEG_CACHE.lock() { g.clear(); }
 }
 
 /* ───────────────────────── 协议响应 ───────────────────────── */
@@ -211,10 +269,14 @@ fn respond(
     body: Vec<u8>,
     cache: &str,
 ) -> Response<Vec<u8>> {
+    let len = body.len().to_string();
     Response::builder()
         .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK))
         .header("Content-Type", ctype)
+        .header("Content-Length", len)
+        .header("Accept-Ranges", "bytes")
         .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Expose-Headers", "Content-Length, Content-Type, Accept-Ranges")
         .header("Cache-Control", cache)
         .body(body)
         .unwrap_or_else(|_| Response::new(Vec::new()))
@@ -249,11 +311,11 @@ pub async fn handle(path: &str, query: &str, origin: &str) -> Response<Vec<u8>> 
             ),
             Err(e) => respond(502, "text/plain", e.into_bytes(), "no-store"),
         },
-        "/seg" => match fetch_bytes(&target).await {
+        "/seg" => match load_segment(&target).await {
             Ok((ctype, bytes)) => respond(
                 200,
-                ctype.as_deref().unwrap_or("application/octet-stream"),
-                bytes,
+                &ctype,
+                bytes.as_ref().clone(),
                 "public, max-age=3600",
             ),
             Err(e) => respond(502, "text/plain", e.into_bytes(), "no-store"),

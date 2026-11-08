@@ -250,7 +250,8 @@ input[type="range"].hg-range::-webkit-slider-thumb { -webkit-appearance: none; w
    原生全屏时红绿灯被系统隐藏（is-native-fs），让位收回，避免留一条空白。 */
 .plat-macos .win-titlebar { padding-left: 84px; }
 .plat-macos .win-titlebar.is-native-fs { padding-left: 14px; }
-.plat-android .win-main { background: var(--p-bg); overflow: hidden; }
+.plat-android .win-main,
+.plat-ios .win-main { background: var(--p-bg); overflow: hidden; }
 .win-page-in { animation: kf-page-in .26s cubic-bezier(.2,0,0,1) both; }
 .win-page-out { animation: kf-page-out .2s ease-in both; }
 
@@ -473,13 +474,17 @@ input[type="range"].hg-range::-webkit-slider-thumb { -webkit-appearance: none; w
 .player-surface .player-root,
 .player-root { background: #15181d; }
 
-/* —— 安卓沉浸全屏：横屏视频把舞台旋转 90°（不依赖系统旋转） —— */
+/* —— 移动端沉浸全屏：横屏视频只把当前播放舞台与浮层旋转 90°（不旋转外层 snap 滚动列表，避免滚屏错位） —— */
 .fs-landscape {
-  position: absolute;
+  position: fixed;
   top: 50%; left: 50%; right: auto; bottom: auto;
   width: 100vh; height: 100vw;
+  width: 100dvh; height: 100dvw;
   transform: translate(-50%, -50%) rotate(90deg);
   transform-origin: center center;
+  z-index: 45;
+  background: #000;
+  overflow: hidden;
 }
 
 .desktop-dock-panel {
