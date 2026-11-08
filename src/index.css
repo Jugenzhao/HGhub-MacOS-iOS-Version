@@ -153,7 +153,7 @@ html.theme-light .elev-3 { box-shadow: 0 10px 30px rgba(0,0,0,.1); }
 .a-panel-out { animation: kf-panel-out .2s ease-in both; }
 @keyframes kf-scale-in { from{opacity:0;transform:scale(.92)} to{opacity:1;transform:scale(1)} }
 .a-scale-in { animation: kf-scale-in .22s cubic-bezier(.2,0,0,1) both; }
-@keyframes kf-page-in { from{transform:translateX(100%)} to{transform:translateX(0)} }
+@keyframes kf-page-in { from{transform:translateX(100%)} to{transform:none} }
 .a-page-in { animation: kf-page-in .3s cubic-bezier(.2,0,0,1) both; }
 @keyframes kf-page-out { from{transform:translateX(0)} to{transform:translateX(100%)} }
 .a-page-out { animation: kf-page-out .22s cubic-bezier(.3,0,.8,.15) both; }
@@ -474,7 +474,18 @@ input[type="range"].hg-range::-webkit-slider-thumb { -webkit-appearance: none; w
 .player-surface .player-root,
 .player-root { background: #15181d; }
 
-/* —— 移动端沉浸全屏：横屏视频只把当前播放舞台与浮层旋转 90°（不旋转外层 snap 滚动列表，避免滚屏错位） —— */
+/* —— 移动端沉浸全屏：固定铺满全屏视口，脱离外层滚动容器 scrollTop 影响 —— */
+.fs-immersive {
+  position: fixed;
+  inset: 0;
+  width: 100vw; height: 100vh;
+  width: 100dvw; height: 100dvh;
+  z-index: 45;
+  background: #000;
+  overflow: hidden;
+}
+
+/* —— 移动端沉浸全屏（系统仍处于竖屏时的 CSS 90° 旋转兜底） —— */
 .fs-landscape {
   position: fixed;
   top: 50%; left: 50%; right: auto; bottom: auto;

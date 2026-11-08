@@ -207,6 +207,31 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      一旦系统屏幕已经横过来了 (vpLandscape === true)，不再叠加 CSS 旋转，彻底解决手机横置后视频反而竖过去的问题！ */
   const rotated = !isDesktop && fs && isLandscapeVideo && !vpLandscape;
 
+  /* 借鉴 stclock1988/hghub-ios (PlayerView.swift keepPlayingThroughTransition)：
+     iOS 在横竖屏几何旋转或全屏视图层级切换期间，系统底层 AVPlayer / WebKit 视频层可能被短暂挂起暂停。
+     在过渡窗口期内分批重申 play()，确保旋转/全屏切换不中断播放。 */
+  const keepPlayingTimers = useRef<number[]>([]);
+  const keepPlayingThroughTransition = useCallback(() => {
+    keepPlayingTimers.current.forEach((id) => window.clearTimeout(id));
+    keepPlayingTimers.current = [];
+    const el = videoRef.current?.el();
+    const shouldPlay = el ? !el.paused : !paused;
+    if (!shouldPlay) return;
+    for (const delay of [50, 150, 300, 500, 800, 1200]) {
+      const tid = window.setTimeout(() => {
+        const v = videoRef.current?.el();
+        if (v && v.paused && !v.ended) {
+          videoRef.current?.play();
+        }
+      }, delay);
+      keepPlayingTimers.current.push(tid);
+    }
+  }, [paused]);
+
+  useEffect(() => () => {
+    keepPlayingTimers.current.forEach((id) => window.clearTimeout(id));
+  }, []);
+
   /* 监听手机屏幕横竖屏变化：物理横置手机时自动进入全屏，竖回时自动退出全屏 */
   useEffect(() => {
     if (isDesktop) return undefined;
@@ -215,6 +240,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       setVpLandscape((prev) => {
         if (prev !== isLand && active) {
           setFs(isLand);
+          keepPlayingThroughTransition();
         }
         return isLand;
       });
@@ -225,10 +251,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       window.removeEventListener("resize", onViewportChange);
       window.removeEventListener("orientationchange", onViewportChange);
     };
-  }, [isDesktop, active, setFs]);
+  }, [isDesktop, active, setFs, keepPlayingThroughTransition]);
 
   /* 进入 / 退出全屏：对横屏视频直接调用原生屏幕方向切换，让手机系统界面真正横过来 */
   const enterFs = useCallback(() => {
+    keepPlayingThroughTransition();
     setClean(false);
     setFs(true);
     if (isLandscapeVideo) {
@@ -237,14 +264,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         (screen.orientation as unknown as { lock?: (o: string) => Promise<void> })?.lock?.("landscape")?.catch(() => {});
       } catch { /* ignore */ }
     }
-  }, [isLandscapeVideo, setClean, setFs]);
+  }, [isLandscapeVideo, setClean, setFs, keepPlayingThroughTransition]);
 
   const exitFs = useCallback(() => {
+    keepPlayingThroughTransition();
     setClean(false);
     setFs(false);
     invoke("set_orientation", { landscape: false }).catch(() => {});
     try { screen.orientation?.unlock?.(); } catch { /* ignore */ }
-  }, [setClean, setFs]);
+  }, [setClean, setFs, keepPlayingThroughTransition]);
 
   /* 全屏状态下若视频宽高刚加载出来且为横屏，自动补发一次横屏指令 */
   useEffect(() => {
@@ -252,6 +280,32 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       invoke("set_orientation", { landscape: true }).catch(() => {});
     }
   }, [isDesktop, fs, isLandscapeVideo]);
+
+  /* 全屏切换或视口旋转后校准滚动容器 scrollTop：
+     - 进入全屏时非当前项已隐藏，当前项位于顶部 scrollTop = 0；
+     - 退出全屏回到竖屏列表时，立即将 scrollTop 重新对齐到 index * clientHeight，防止错位到其它视频封面。 */
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return undefined;
+    if (fs) {
+      el.scrollTop = 0;
+      return undefined;
+    }
+    const syncScroll = () => {
+      const box = boxRef.current;
+      if (!box || fs) return;
+      box.scrollTop = index * (box.clientHeight || 1);
+    };
+    syncScroll();
+    const raf = requestAnimationFrame(syncScroll);
+    const t1 = window.setTimeout(syncScroll, 120);
+    const t2 = window.setTimeout(syncScroll, 350);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [fs, vpLandscape, index]);
 
   /* 滚动定位（全屏或缩放手势期间锁定索引，避免容器尺寸变化误触发翻页） */
   const onScroll = useCallback(() => {
@@ -711,10 +765,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     <div
       className={`hg-player-ui absolute inset-0 overflow-hidden bg-black player-root ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
       onPointerMove={() => { if (isDesktop) wake(); }}>
-      {/* 氛围背景 */}
-      <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
-        {posterUrl && <img src={posterUrl} alt="" className="w-full h-full object-cover" />}
-      </div>
+      {/* 氛围背景（全屏时隐藏，避免透出封面底图） */}
+      {!fs && (
+        <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
+          {posterUrl && <img src={posterUrl} alt="" className="w-full h-full object-cover" />}
+        </div>
+      )}
 
       <div ref={boxRef} onScroll={onScroll}
         className={`absolute inset-y-0 left-0 no-bar ${fs ? "overflow-hidden" : "overflow-y-scroll snap-y snap-mandatory overscroll-y-contain"}`}
@@ -722,9 +778,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         {videoIds.map((vid, i) => {
           const isActive = i === index;
           return (
-            <section key={vid} className="relative w-full h-full snap-start snap-always overflow-hidden">
+            <section
+              key={vid}
+              style={!isActive && fs ? { display: "none" } : undefined}
+              className={`relative w-full h-full snap-start snap-always ${fs && isActive ? "" : "overflow-hidden"}`}>
               {isActive && playUrl ? (
-                <div className={rotated ? "fs-landscape" : "absolute inset-0"}>
+                <div className={rotated ? "fs-landscape" : (!isDesktop && fs ? "fs-immersive" : "absolute inset-0")}>
                   <div
                     className="absolute inset-0 overflow-hidden"
                     style={{ touchAction: fs || zoom.scale > 1.05 ? "none" : "pan-y" }}
@@ -747,7 +806,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <VideoSurface
                       ref={videoRef}
                       src={playUrl}
-                      poster={posterUrl}
+                      poster={fs ? undefined : posterUrl}
                       autoPlay
                       muted={muted}
                       volume={volume}
@@ -881,7 +940,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
               ) : (
                 <div className="absolute inset-0">
-                  <Img src={detail?.cover || cards[vid]?.cover || posts[vid]?.cover || ""} eager={Math.abs(i - index) <= 1} />
+                  <Img src={cards[vid]?.cover || posts[vid]?.cover || details[vid]?.cover || (isActive ? detail?.cover : "") || ""} eager={Math.abs(i - index) <= 1} />
                   <div className="absolute inset-0" style={{ background: "rgba(0,0,0,.25)" }} />
                 </div>
               )}

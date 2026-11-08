@@ -282,6 +282,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     v.playbackRate = rate;
   };
 
+  const nearEndFiredRef = useRef(false);
+  useEffect(() => {
+    nearEndFiredRef.current = false;
+  }, [src]);
+
   // Native Resize Event listener for HTMLVideoElement (React doesn't always bind onResize on <video>)
   useEffect(() => {
     const v = videoRef.current;
@@ -295,60 +300,87 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const hasTransform = scale !== 1 || panX !== 0 || panY !== 0;
 
   return (
-    <video
-      ref={videoRef}
-      poster={poster}
-      playsInline
-      webkit-playsinline="true"
-      preload="auto"
-      loop={loop}
-      onClick={onClick}
-      className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"} ${className}`}
-      style={{
-        opacity: ready ? 1 : 0,
-        transform: hasTransform ? `translate3d(${panX}px, ${panY}px, 0) scale(${scale})` : "translateZ(0)",
-        transformOrigin: "center center",
-        transition: isGesturing ? "opacity .25s" : "opacity .25s, transform .2s cubic-bezier(.2,0,0,1)",
-      }}
-      onLoadedData={(e) => {
-        const v = e.target as HTMLVideoElement;
-        setReady(true);
-        reapply(v);
-        reportSizeAndDuration(v);
-      }}
-      onCanPlay={(e) => {
-        const v = e.target as HTMLVideoElement;
-        setReady(true);
-        reportSizeAndDuration(v);
-      }}
-      onTimeUpdate={(e) => {
-        const v = e.target as HTMLVideoElement;
-        onTime?.(v.currentTime);
-        if (lastSizeRef.current.w === 0 && v.videoWidth > 0) {
+    <div className={`relative w-full h-full bg-black overflow-hidden ${className}`}>
+      {!ready && poster && (
+        <img
+          src={poster}
+          alt=""
+          className={`absolute inset-0 w-full h-full pointer-events-none ${fit === "cover" ? "object-cover" : "object-contain"}`}
+        />
+      )}
+      <video
+        ref={videoRef}
+        playsInline
+        webkit-playsinline="true"
+        preload="auto"
+        loop={loop}
+        onClick={onClick}
+        className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"}`}
+        style={{
+          opacity: ready ? 1 : 0,
+          transform: hasTransform ? `translate3d(${panX}px, ${panY}px, 0) scale(${scale})` : "translateZ(0)",
+          transformOrigin: "center center",
+          transition: isGesturing ? "opacity .25s" : "opacity .25s, transform .2s cubic-bezier(.2,0,0,1)",
+        }}
+        onLoadedData={(e) => {
+          const v = e.target as HTMLVideoElement;
+          setReady(true);
+          reapply(v);
           reportSizeAndDuration(v);
-        }
-      }}
-      onLoadedMetadata={(e) => {
-        const v = e.target as HTMLVideoElement;
-        reapply(v);
-        reportSizeAndDuration(v);
-      }}
-      onPlay={() => onPlaying?.()}
-      onPause={() => onPause?.()}
-      onWaiting={() => onWaiting?.()}
-      onPlaying={(e) => {
-        setReady(true);
-        recoverCountRef.current = 0;
-        reportSizeAndDuration(e.target as HTMLVideoElement);
-        onPlaying?.();
-      }}
-      onSeeking={() => onWaiting?.()}
-      onSeeked={() => {
-        const v = videoRef.current;
-        if (v && !v.paused) onPlaying?.();
-      }}
-      onEnded={() => onEnded?.()}
-    />
+        }}
+        onCanPlay={(e) => {
+          const v = e.target as HTMLVideoElement;
+          setReady(true);
+          reportSizeAndDuration(v);
+        }}
+        onTimeUpdate={(e) => {
+          const v = e.target as HTMLVideoElement;
+          onTime?.(v.currentTime);
+          if (lastSizeRef.current.w === 0 && v.videoWidth > 0) {
+            reportSizeAndDuration(v);
+          }
+          // 借鉴 stclock1988/hghub-ios：部分 HLS 流容器标称时长比最后一个分片略长 0.5~1.2s，
+          // 接近片尾时提前复位准备，若卡在片尾则自动触发连播
+          if (!loop && !nearEndFiredRef.current && v.duration > 5 && v.currentTime >= v.duration - 0.35) {
+            nearEndFiredRef.current = true;
+            onEnded?.();
+          }
+        }}
+        onLoadedMetadata={(e) => {
+          const v = e.target as HTMLVideoElement;
+          reapply(v);
+          reportSizeAndDuration(v);
+        }}
+        onPlay={() => onPlaying?.()}
+        onPause={() => onPause?.()}
+        onWaiting={(e) => {
+          const v = e.target as HTMLVideoElement;
+          if (!loop && !nearEndFiredRef.current && v.duration > 5 && v.currentTime >= v.duration - 1.5) {
+            nearEndFiredRef.current = true;
+            onEnded?.();
+            return;
+          }
+          onWaiting?.();
+        }}
+        onPlaying={(e) => {
+          setReady(true);
+          recoverCountRef.current = 0;
+          reportSizeAndDuration(e.target as HTMLVideoElement);
+          onPlaying?.();
+        }}
+        onSeeking={() => onWaiting?.()}
+        onSeeked={() => {
+          const v = videoRef.current;
+          if (v && !v.paused) onPlaying?.();
+        }}
+        onEnded={() => {
+          if (!nearEndFiredRef.current) {
+            nearEndFiredRef.current = true;
+            onEnded?.();
+          }
+        }}
+      />
+    </div>
   );
 });
 

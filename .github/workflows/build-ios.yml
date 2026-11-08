@@ -53,13 +53,18 @@ jobs:
       - name: 初始化 iOS Xcode 工程
         run: |
           pnpm tauri ios init --ci || pnpm tauri ios init
-          # 确保 iOS Info.plist 支持横竖屏切换（Portrait / LandscapeLeft / LandscapeRight）
+          # 确保 iOS Info.plist（含 ~iphone / ~ipad 变体）支持横竖屏切换及 ATS
           for plist in $(find src-tauri/gen/apple -name "Info.plist" 2>/dev/null); do
-            /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" "$plist" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" "$plist"
-            /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$plist"
-            /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:1 string UIInterfaceOrientationLandscapeLeft" "$plist"
-            /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:2 string UIInterfaceOrientationLandscapeRight" "$plist"
+            for key in "UISupportedInterfaceOrientations" "UISupportedInterfaceOrientations~iphone" "UISupportedInterfaceOrientations~ipad"; do
+              /usr/libexec/PlistBuddy -c "Delete :${key}" "$plist" 2>/dev/null || true
+              /usr/libexec/PlistBuddy -c "Add :${key} array" "$plist"
+              /usr/libexec/PlistBuddy -c "Add :${key}:0 string UIInterfaceOrientationPortrait" "$plist"
+              /usr/libexec/PlistBuddy -c "Add :${key}:1 string UIInterfaceOrientationLandscapeLeft" "$plist"
+              /usr/libexec/PlistBuddy -c "Add :${key}:2 string UIInterfaceOrientationLandscapeRight" "$plist"
+            done
+            /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "$plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist"
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$plist"
           done
         env:
           APPLE_DEVELOPMENT_TEAM: "ABCDE12345"
