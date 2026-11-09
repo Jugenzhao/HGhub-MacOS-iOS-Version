@@ -1,13 +1,16 @@
 import React, { useEffect, useImperativeHandle, useRef, forwardRef, useState } from "react";
 import Hls from "hls.js";
 import { isLocalMedia, platform, playlist } from "../api";
+import { mediaResource, observeHls, usePlayerDiagnostics } from "../playbackDiagnostics";
+import { usePlaybackActivity } from "../usePlaybackActivity";
 
 export type VideoHandle = {
   el: () => HTMLVideoElement | null;
   play: () => void;
   pause: () => void;
   toggle: () => void;
-  seek: (t: number, autoResume?: boolean) => void;
+  seek: (t: number, sourceOrAutoResume?: string | boolean) => void;
+  trace: (event: string, data?: Record<string, unknown>) => void;
   rate: (r: number) => void;
   mute: (m: boolean) => void;
   volume: (v: number) => void;
@@ -18,6 +21,8 @@ type Props = {
   src: string;
   poster?: string;
   autoPlay?: boolean;
+  active?: boolean;
+  diagnosticContext?: Record<string, unknown>;
   muted?: boolean;
   loop?: boolean;
   fit?: "contain" | "cover";
@@ -43,7 +48,7 @@ type Props = {
 
 /** 只负责「播」：hls.js + video 元素，控制条由外层渲染。 */
 const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
-  { src, poster, autoPlay = true, muted = false, loop = false, fit = "contain",
+  { src, poster, autoPlay = true, active = true, diagnosticContext = {}, muted = false, loop = false, fit = "contain",
     scale = 1, panX = 0, panY = 0, isGesturing = false,
     volume = 1, rate = 1,
     onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onEnded, onError, onClick, className = "" },
@@ -55,6 +60,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const recoverTimerRef = useRef<number | null>(null);
   const lastSizeRef = useRef({ w: 0, h: 0 });
   const [ready, setReady] = useState(false);
+  const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
+  const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
 
   const reportSizeAndDuration = (v: HTMLVideoElement) => {
     if (v.duration && Number.isFinite(v.duration) && v.duration > 0) {
@@ -68,12 +75,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     }
   };
 
-  const safeSeek = (t: number, autoResume = false) => {
+  const safeSeek = (t: number, sourceOrAutoResume: string | boolean = "handle") => {
     const v = videoRef.current;
     if (!v || !Number.isFinite(t)) return;
     const dur = v.duration && Number.isFinite(v.duration) ? v.duration : 0;
     const target = dur > 0 ? Math.max(0, Math.min(dur - 0.15, t)) : Math.max(0, t);
+    const source = typeof sourceOrAutoResume === "string" ? sourceOrAutoResume : "handle";
+    const autoResume = typeof sourceOrAutoResume === "boolean" ? sourceOrAutoResume : !v.paused;
 
+    requestSeek(target, source);
     onWaiting?.();
     if (hlsRef.current) {
       try {
@@ -83,19 +93,22 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     try {
       v.currentTime = target;
-    } catch { /* ignore */ }
+      trace("seek.assigned", { target, source });
+    } catch (e) {
+      trace("seek.rejected", { error_name: (e as Error).name });
+    }
 
-    if (autoResume) {
+    if (autoResume && activity.isActive()) {
       const resumeOnce = () => {
         v.removeEventListener("seeked", resumeOnce);
         v.removeEventListener("canplay", resumeOnce);
-        v.play().catch(() => {});
+        if (activity.isActive()) v.play().catch(() => {});
       };
       v.addEventListener("seeked", resumeOnce, { once: true });
       v.addEventListener("canplay", resumeOnce, { once: true });
       // 兜底：若 350ms 内已经就绪则直接播
       window.setTimeout(() => {
-        if (v.readyState >= 2 && v.paused) {
+        if (v.readyState >= 2 && v.paused && activity.isActive()) {
           v.removeEventListener("seeked", resumeOnce);
           v.removeEventListener("canplay", resumeOnce);
           v.play().catch(() => {});
@@ -106,28 +119,16 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
   useImperativeHandle(ref, () => ({
     el: () => videoRef.current,
-    play: () => {
-      const v = videoRef.current;
-      if (!v) return;
-      if (hlsRef.current) {
-        try { hlsRef.current.startLoad(v.currentTime || -1); } catch { /* ignore */ }
-      }
-      v.play().catch(() => {});
-    },
-    pause: () => videoRef.current?.pause(),
+    play: () => activity.play("handle"),
+    pause: () => activity.pause(),
     toggle: () => {
       const v = videoRef.current;
       if (!v) return;
-      if (v.paused) {
-        if (hlsRef.current) {
-          try { hlsRef.current.startLoad(v.currentTime || -1); } catch { /* ignore */ }
-        }
-        v.play().catch(() => {});
-      } else {
-        v.pause();
-      }
+      trace("toggle.request");
+      if (v.paused) activity.play("toggle"); else activity.pause("toggle");
     },
-    seek: (t: number, autoResume = false) => safeSeek(t, autoResume),
+    seek: (t: number, sourceOrAutoResume: string | boolean = "handle") => safeSeek(t, sourceOrAutoResume),
+    trace,
     rate: (r: number) => { const v = videoRef.current; if (v) v.playbackRate = r; },
     mute: (m: boolean) => { const v = videoRef.current; if (v) v.muted = m; },
     volume: (vol: number) => { const v = videoRef.current; if (v) v.volume = vol; },
@@ -139,7 +140,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       if (hlsRef.current) {
         try {
           hlsRef.current.startLoad(cur);
-          v.play().catch(() => {});
+          activity.play("reload");
           return;
         } catch { /* ignore */ }
       }
@@ -147,7 +148,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       if (cur > 0) {
         try { v.currentTime = cur; } catch { /* ignore */ }
       }
-      v.play().catch(() => {});
+      activity.play("reload");
     },
   }));
 
@@ -167,6 +168,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     const url = proxied ? src : playlist(src);
     const useHls = !url.includes("/seg?u=");
     const isIos = platform === "ios";
+    trace("source.load", { engine: useHls && Hls.isSupported() ? "hls.js" : "native", auto_play: autoPlay, resource: mediaResource(src) });
 
     /* 换源时先把音量/倍速套回去：hls 重新 attach 后浏览器会把它们重置成默认值 */
     const applySettings = () => {
@@ -180,8 +182,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     if (useHls && Hls.isSupported()) {
       const hls = new Hls({
+        // 禁用从插播/内容引导 JSON 派生直连 URL 的可选功能。
+        interstitialsController: undefined,
+        contentSteeringController: undefined,
+        enableInterstitialPlayback: false,
         // iOS WKWebView 下 WebWorker 跨自定义协议 hg:// 高频中断易死锁，关闭 Worker 走主线程加载更稳
         enableWorker: !isIos,
+        // Prefer standard MSE on macOS; hls.js handles MMS-only fallback and seek recovery.
+        preferManagedMediaSource: false,
+        autoStartLoad: false,
         lowLatencyMode: false,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
@@ -200,10 +209,12 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         startFragPrefetch: true,
       });
       hlsRef.current = hls;
+      observeHls(hls, trace);
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (autoPlay) video.play().catch(() => {});
+        if (activity.isActive()) hls.startLoad();
+        if (autoPlay) activity.play("manifest_autoplay", true);
       });
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
         recoverCountRef.current = 0;
@@ -213,9 +224,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         // 非致命卡顿错误（常见于拖动进度条后缓冲空洞）：主动触发加载与微调跳帧
         if (!data.fatal) {
           if (
-            data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR ||
-            data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
-            data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT
+            activity.isActive() && (
+              data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR ||
+              data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
+              data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT
+            )
           ) {
             try {
               hls.startLoad(video.currentTime || -1);
@@ -224,6 +237,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           return;
         }
 
+        if (!activity.isActive()) return;
+
         // 致命错误：优先自动重连/恢复解码器，最多静默恢复 4 次，避免拖动进度条直接弹报错层
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
           if (recoverCountRef.current < 4) {
@@ -231,7 +246,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
             const delay = 250 * recoverCountRef.current;
             if (recoverTimerRef.current) window.clearTimeout(recoverTimerRef.current);
             recoverTimerRef.current = window.setTimeout(() => {
-              if (!hlsRef.current) return;
+              if (!hlsRef.current || !activity.isActive()) return;
               try {
                 hlsRef.current.startLoad(video.currentTime || -1);
                 if (!video.paused) video.play().catch(() => {});
@@ -240,6 +255,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
             return;
           }
           onError?.(`${data.type}/${data.details}`);
+          hls.startLoad();
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           if (recoverCountRef.current < 4) {
             recoverCountRef.current += 1;
@@ -251,6 +267,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
             return;
           }
           onError?.(`${data.type}/${data.details}`);
+          hls.recoverMediaError();
         } else {
           onError?.(`${data.type}/${data.details}`);
           hls.destroy();
@@ -259,10 +276,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       });
     } else {
       video.src = url;
-      if (autoPlay) video.play().catch(() => {});
+      if (autoPlay) activity.play("native_autoplay", true);
     }
 
     return () => {
+      trace("source.cleanup");
       if (recoverTimerRef.current) {
         window.clearTimeout(recoverTimerRef.current);
         recoverTimerRef.current = null;
@@ -313,6 +331,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         playsInline
         webkit-playsinline="true"
         preload="auto"
+        muted={muted}
         loop={loop}
         onClick={onClick}
         className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"}`}
@@ -341,7 +360,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           }
           // 借鉴 stclock1988/hghub-ios：部分 HLS 流容器标称时长比最后一个分片略长 0.5~1.2s，
           // 接近片尾时提前复位准备，若卡在片尾则自动触发连播
-          if (!loop && !nearEndFiredRef.current && v.duration > 5 && v.currentTime >= v.duration - 0.35) {
+          if (!loop && !nearEndFiredRef.current && activity.isActive() && v.duration > 5 && v.currentTime >= v.duration - 0.35) {
             nearEndFiredRef.current = true;
             onEnded?.();
           }
@@ -351,11 +370,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           reapply(v);
           reportSizeAndDuration(v);
         }}
-        onPlay={() => onPlaying?.()}
+        onPlay={() => { if (activity.isActive()) onPlaying?.(); }}
         onPause={() => onPause?.()}
         onWaiting={(e) => {
           const v = e.target as HTMLVideoElement;
-          if (!loop && !nearEndFiredRef.current && v.duration > 5 && v.currentTime >= v.duration - 1.5) {
+          if (!loop && !nearEndFiredRef.current && activity.isActive() && v.duration > 5 && v.currentTime >= v.duration - 1.5) {
             nearEndFiredRef.current = true;
             onEnded?.();
             return;
@@ -366,15 +385,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           setReady(true);
           recoverCountRef.current = 0;
           reportSizeAndDuration(e.target as HTMLVideoElement);
-          onPlaying?.();
+          if (activity.isActive()) onPlaying?.();
         }}
         onSeeking={() => onWaiting?.()}
         onSeeked={() => {
           const v = videoRef.current;
-          if (v && !v.paused) onPlaying?.();
+          if (v && !v.paused && activity.isActive()) onPlaying?.();
         }}
         onEnded={() => {
-          if (!nearEndFiredRef.current) {
+          if (!nearEndFiredRef.current && activity.isActive()) {
             nearEndFiredRef.current = true;
             onEnded?.();
           }

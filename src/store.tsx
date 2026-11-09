@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { api, platform as envPlatform } from "./api";
+import { isStrictSecurity, setStrictSecurity as setHtmlStrictSecurity } from "./html";
 import type { User } from "./types";
 
 export type Platform = "android" | "ios" | "windows" | "macos";
@@ -48,6 +49,7 @@ type Persist = {
   history: WatchProgress[];
   follows: number[];
   muted: boolean;
+  muteOnStartup: boolean;
   volume: number;
   searchHist: string[];
 };
@@ -55,7 +57,7 @@ type Persist = {
 const LS = "hghub_app_v1";
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  muted: true, volume: 0.7, searchHist: [],
+  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [],
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -80,7 +82,9 @@ function loadPersist(): Persist {
     const raw = localStorage.getItem(LS);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
-    return { ...p, history: normalizeHistory(p.history) };
+    // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
+    const muteOnStartup = p.muteOnStartup !== false;
+    return { ...p, muteOnStartup, muted: muteOnStartup || p.muted === true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -120,8 +124,10 @@ type Store = {
   /** 清屏模式（单击屏幕消除所有控件，只保留纯视频内容） */
   clean: boolean; setClean: (v: boolean | ((p: boolean) => boolean)) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
+  muteOnStartup: boolean; setMuteOnStartup: (on: boolean) => void;
   volume: number; setVolume: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
+  strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
 };
 
@@ -140,6 +146,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theater, setTheaterState] = useState(false);
   const [fs, setFsState] = useState(false);
   const [clean, setCleanState] = useState(false);
+  const [strictSecurity, setStrictSecurityState] = useState<boolean>(isStrictSecurity);
+  const [cliRelaxed, setCliRelaxed] = useState(false);
+  const [strictSecurityReady, setStrictSecurityReady] = useState(false);
+  const [securityPending, setSecurityPending] = useState(false);
   const toastSeq = useRef(0);
 
   useEffect(() => {
@@ -153,9 +163,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     api.boot()
-      .then((r) => { if (r.user && (r.user as User).id) setUser(r.user as User); })
+      .then((r) => {
+        if (r.user && (r.user as User).id) setUser(r.user as User);
+        if (typeof r.strict_security === "boolean") {
+          setStrictSecurityState(r.strict_security);
+          setHtmlStrictSecurity(r.strict_security);
+          setStrictSecurityReady(true);
+        }
+        setCliRelaxed(!!r.cli_relaxed);
+      })
       .catch(() => { /* 离线也能用 */ });
   }, []);
+
+  const setStrictSecurity = useCallback(async (on: boolean) => {
+    if (!strictSecurityReady) throw new Error("安全设置尚未读取，请重新启动应用");
+    setSecurityPending(true);
+    try {
+      const saved = await api.securitySet(on);
+      setHtmlStrictSecurity(saved);
+      setStrictSecurityState(saved);
+    } finally {
+      setSecurityPending(false);
+    }
+  }, [strictSecurityReady]);
 
   const toast = useCallback((msg: string, icon?: Toast["icon"]) => {
     const id = ++toastSeq.current;
@@ -248,6 +278,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setP((s) => ({ ...s, muted: typeof v === "function" ? v(s.muted) : v }));
   }, []);
+  const setMuteOnStartup = useCallback((on: boolean) => {
+    setP((s) => ({ ...s, muteOnStartup: on }));
+  }, []);
   const setVolume = useCallback((v: number) => {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
@@ -264,11 +297,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume,
     theater, setTheater, fs, setFs, clean, setClean,
+    muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     searchHist: p.searchHist, addSearch, clearSearchHist,
+    strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast,
   }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setVolume, addSearch, clearSearchHist, toasts, toast, theater, setTheater, fs, setFs, clean, setClean]);
+    setMuted, setMuteOnStartup, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    toasts, toast, theater, setTheater, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -4,6 +4,7 @@ use crate::net::{base, edge};
 use crate::session::SessionStore;
 use serde_json::{json, Value};
 use tauri::State;
+use tauri_plugin_opener::OpenerExt;
 
 pub struct Api {
     pub session: SessionStore,
@@ -16,35 +17,28 @@ impl Api {
         }
     }
 
-    fn token(&self) -> Option<String> {
-        self.session.token()
-    }
-
     async fn get(&self, path: &str) -> Result<Value, String> {
-        let token = self.token();
-        edge("GET", path, None, token.as_deref()).await
+        let origin = base();
+        let token = self.session.token(&origin);
+        edge(&origin, "GET", path, None, token.as_deref()).await
     }
 
     async fn authed(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+        let origin = base();
         let token = self
-            .token()
+            .session
+            .token(&origin)
             .ok_or_else(|| "请先登录".to_string())?;
-        edge(method, path, body, Some(&token)).await
+        edge(&origin, method, path, body, Some(&token)).await
     }
 }
 
-/// 诊断用：把前端自检结果写到应用数据目录 debug.log
+/// API/运行错误与自检统一写入 debug.log，每行附 RFC 3339 UTC 时间和进程编号。
 #[tauri::command]
 pub async fn debug_log(app: tauri::AppHandle, msg: String) -> Result<(), String> {
     use tauri::Manager;
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("debug.log");
-    use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = writeln!(f, "{}", msg);
-    }
-    Ok(())
+    crate::logging::append_debug(&dir, &msg)
 }
 
 /// 网络自检：系统代理 / DNS / 连通性快照，用于远程定位「打不开」。
@@ -67,8 +61,13 @@ pub async fn line_state() -> Result<Value, String> {
 
 /// 手动切换线路：立即生效并落盘（下次启动沿用）。
 #[tauri::command]
-pub async fn line_set(url: String) -> Result<String, String> {
-    crate::net::set_base(&url)
+pub async fn line_set(state: State<'_, Api>, url: String) -> Result<String, String> {
+    let previous = base();
+    let next = crate::net::set_base(&url)?;
+    if previous != next {
+        state.session.clear();
+    }
+    Ok(next)
 }
 
 /// 从地址发布页抓镜像线路（只在用户点开「线路」时调用）。
@@ -116,13 +115,13 @@ fn is_newer(latest: &str, current: &str) -> bool {
 pub async fn check_update() -> Result<Value, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let resp = crate::net::client()
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .timeout(std::time::Duration::from_secs(12))
-        .send()
-        .await
-        .map_err(|e| crate::net::err_text(&e))?;
+    let resp = crate::net::get(
+        &url,
+        std::time::Duration::from_secs(12),
+        Some("application/vnd.github+json"),
+        None,
+    )
+    .await?;
 
     let status = resp.status();
     if status.as_u16() == 404 {
@@ -137,7 +136,11 @@ pub async fn check_update() -> Result<Value, String> {
     }
 
     let v: Value = resp.json().await.map_err(|e| crate::net::err_text(&e))?;
-    let tag = v.get("tag_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let tag = v
+        .get("tag_name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     let html = v
         .get("html_url")
         .and_then(|x| x.as_str())
@@ -159,45 +162,12 @@ pub async fn check_update() -> Result<Value, String> {
 
 /// 用系统默认浏览器打开链接（只允许 http/https）。
 #[tauri::command]
-pub async fn open_url(url: String) -> Result<(), String> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("只允许打开 http(s) 链接".to_string());
-    }
-    open_external(&url)
-}
-
-#[cfg(target_os = "windows")]
-fn open_external(url: &str) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW，别闪一下黑框
-        .spawn()
-        .map(|_| ())
+pub async fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let target = crate::network_policy::parse_target(&url)?;
+    // 固定使用默认处理器；不向前端暴露可指定程序的 opener 命令。
+    app.opener()
+        .open_url(target.as_str(), None::<&str>)
         .map_err(|e| e.to_string())
-}
-
-#[cfg(target_os = "macos")]
-fn open_external(url: &str) -> Result<(), String> {
-    std::process::Command::new("open")
-        .arg(url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
-fn open_external(url: &str) -> Result<(), String> {
-    std::process::Command::new("xdg-open")
-        .arg(url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-#[cfg(target_os = "android")]
-fn open_external(_url: &str) -> Result<(), String> {
-    Err("移动端请手动在浏览器打开".to_string())
 }
 
 /// 切换移动端屏幕方向（iOS 原生旋转屏幕方向：横屏 Landscape / 竖屏 Portrait）。
@@ -312,11 +282,26 @@ fn request_ios_orientation(landscape: bool) {
 
 #[tauri::command]
 pub async fn app_boot(state: State<'_, Api>) -> Result<Value, String> {
+    let origin = base();
     Ok(json!({
-        "user": state.session.user(),
-        "logged_in": state.session.token().is_some(),
-        "base": base(),
+        "user": state.session.user(&origin),
+        "logged_in": state.session.token(&origin).is_some(),
+        "base": origin,
+        "strict_security": crate::network_policy::strict_security(),
+        "cli_relaxed": crate::network_policy::cli_strict_override() == Some(false),
     }))
+}
+
+/// 切换严格安全模式（关闭后回退到兼容清洗与网络守卫模式，立即生效并落盘）。
+#[tauri::command]
+pub async fn security_set(strict: bool) -> Result<bool, String> {
+    crate::network_policy::set_strict_security(strict)?;
+    crate::net::refresh_client();
+    crate::playback_log::record(
+        "security.mode_changed",
+        json!({"strict": crate::network_policy::strict_security()}),
+    );
+    Ok(crate::network_policy::strict_security())
 }
 
 #[tauri::command]
@@ -325,7 +310,9 @@ pub async fn api_login(
     username: String,
     password: String,
 ) -> Result<Value, String> {
+    let origin = base();
     let data = edge(
+        &origin,
         "POST",
         "/api/account/loginByPassword",
         Some(json!({ "username": username, "password": password })),
@@ -338,7 +325,10 @@ pub async fn api_login(
         .ok_or_else(|| "登录返回缺少 token".to_string())?
         .to_string();
     let user = data.get("user").cloned().unwrap_or(Value::Null);
-    state.session.set(token, user.clone());
+    if base() != origin {
+        return Err("登录期间线路已变化，请重新登录".into());
+    }
+    state.session.set(&origin, token, user.clone());
     Ok(json!({ "user": user }))
 }
 
@@ -349,6 +339,7 @@ pub async fn api_register(
     password: String,
     email: String,
 ) -> Result<Value, String> {
+    let origin = base();
     let mut body = json!({
         "username": username,
         "password": password,
@@ -357,30 +348,53 @@ pub async fn api_register(
     if !email.trim().is_empty() {
         body["email"] = json!(email);
     }
-    let data = edge("POST", "/api/account/registerByPassword", Some(body), None).await?;
+    let data = edge(
+        &origin,
+        "POST",
+        "/api/account/registerByPassword",
+        Some(body),
+        None,
+    )
+    .await?;
     let token = data
         .get("token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "注册返回缺少 token".to_string())?
         .to_string();
     let user = data.get("user").cloned().unwrap_or(Value::Null);
-    state.session.set(token, user.clone());
+    if base() != origin {
+        return Err("注册期间线路已变化，请重新登录".into());
+    }
+    state.session.set(&origin, token, user.clone());
     Ok(json!({ "user": user }))
 }
 
 #[tauri::command]
 pub async fn api_logout(state: State<'_, Api>) -> Result<Value, String> {
-    let token = state.token();
-    let _ = edge("POST", "/api/account/logout", None, token.as_deref()).await;
+    let origin = base();
+    let token = state.session.token(&origin);
+    let _ = edge(
+        &origin,
+        "POST",
+        "/api/account/logout",
+        None,
+        token.as_deref(),
+    )
+    .await;
     state.session.clear();
     Ok(json!({ "ok": true }))
 }
 
 #[tauri::command]
 pub async fn api_me(state: State<'_, Api>) -> Result<Value, String> {
-    let me = state.get("/api/account/me").await?;
-    if let Some(user) = state.session.token() {
-        state.session.set(user, me.clone());
+    let origin = base();
+    let token = state.session.token(&origin);
+    let me = edge(&origin, "GET", "/api/account/me", None, token.as_deref()).await?;
+    if base() != origin {
+        return Err("读取账号期间线路已变化".into());
+    }
+    if let Some(token) = state.session.token(&origin) {
+        state.session.set(&origin, token, me.clone());
     }
     Ok(me)
 }
@@ -493,12 +507,7 @@ pub async fn api_comment_send(
 }
 
 #[tauri::command]
-pub async fn api_like(
-    state: State<'_, Api>,
-    id: i64,
-    ep: u32,
-    on: bool,
-) -> Result<Value, String> {
+pub async fn api_like(state: State<'_, Api>, id: i64, ep: u32, on: bool) -> Result<Value, String> {
     let method = if on { "POST" } else { "DELETE" };
     state
         .authed(method, &format!("/api/videos/{id}/like?ep={ep}"), None)
@@ -506,11 +515,7 @@ pub async fn api_like(
 }
 
 #[tauri::command]
-pub async fn api_collect(
-    state: State<'_, Api>,
-    id: i64,
-    on: bool,
-) -> Result<Value, String> {
+pub async fn api_collect(state: State<'_, Api>, id: i64, on: bool) -> Result<Value, String> {
     let method = if on { "POST" } else { "DELETE" };
     state
         .authed(method, &format!("/api/videos/{id}/collect"), None)
@@ -518,11 +523,7 @@ pub async fn api_collect(
 }
 
 #[tauri::command]
-pub async fn api_follow(
-    state: State<'_, Api>,
-    uid: i64,
-    on: bool,
-) -> Result<Value, String> {
+pub async fn api_follow(state: State<'_, Api>, uid: i64, on: bool) -> Result<Value, String> {
     let method = if on { "POST" } else { "DELETE" };
     state
         .authed(method, &format!("/api/users/{uid}/follow"), None)
@@ -569,6 +570,46 @@ pub async fn api_post_comments(
 #[cfg(test)]
 mod tests {
     use super::is_newer;
+    use serde_json::Value;
+
+    #[test]
+    fn frontend_cannot_bypass_url_policy_with_opener_commands() {
+        let capability: Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        for permission in capability["permissions"].as_array().unwrap() {
+            let name = permission
+                .as_str()
+                .or_else(|| permission["identifier"].as_str())
+                .unwrap();
+            assert!(
+                !name.starts_with("opener:"),
+                "frontend opener command exposed: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn external_links_are_urls_not_shell_commands() {
+        for raw in [
+            "https://example.com/|calc.exe",
+            "https://example.com/?a=1&b=2",
+            "https://example.com/%25PATH%25",
+            "https://example.com/%VAR%",
+        ] {
+            assert!(crate::network_policy::parse_target(raw).is_ok());
+        }
+        for raw in [
+            "file:///etc/passwd",
+            "mailto:user@example.com",
+            "tel:123",
+            "data:text/html,test",
+            "javascript:alert(1)",
+            "https://example.com/\0cmd",
+            "https://user:password@example.com/",
+        ] {
+            assert!(crate::network_policy::parse_target(raw).is_err());
+        }
+    }
 
     #[test]
     fn compares_versions() {

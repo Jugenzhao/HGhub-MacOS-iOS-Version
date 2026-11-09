@@ -9,19 +9,17 @@ import type {
 export const APP_VERSION = __APP_VERSION__;
 
 const ua = navigator.userAgent;
+/** iPhone 的 UA 也带「like Mac OS X」，必须先于 macOS 判断；iPadOS 默认伪装成 Mac，用触点数区分。 */
 export const isIos =
   /iPhone|iPad|iPod/i.test(ua) ||
+  (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1) ||
   (typeof navigator.platform === "string" && navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 export const isAndroid = /Android/i.test(ua);
-export const isMobile = isIos || isAndroid;
 export const isMacos = !isIos && /Macintosh|Mac OS X/i.test(ua);
-export const platform: "android" | "ios" | "windows" | "macos" = isIos
-  ? "ios"
-  : isAndroid
-  ? "android"
-  : isMacos
-  ? "macos"
-  : "windows";
+export const platform: "android" | "ios" | "windows" | "macos" =
+  isAndroid ? "android" : isIos ? "ios" : isMacos ? "macos" : "windows";
+/** 移动端（安卓 / iOS）共用触屏界面 */
+export const isMobile = isAndroid || isIos;
 
 /** 自定义协议地址随平台不同（见 tauri `register_asynchronous_uri_scheme_protocol` 文档）：
  *  Windows / Android → `http://<scheme>.localhost`
@@ -51,6 +49,10 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     const msg = typeof e === "string" ? e : "请求失败，请检查网络";
     // 落盘完整错误链（dns error / connection refused / 证书错误…），toast 只显示截断版
     logLine(`[api] ${cmd} → ${msg}`);
+    const status = /^HTTP (\d{3})\b/.exec(msg)?.[1];
+    if (status) {
+      throw new Error(`服务器请求失败（HTTP ${status}），请稍后重试或在设置中切换线路`);
+    }
     throw new Error(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg);
   }
 }
@@ -58,7 +60,15 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 /* ── 接口 ───────────────────────────────────────────────── */
 
 export const api = {
-  boot: () => call<{ user: User | null; logged_in: boolean; base: string }>("app_boot"),
+  boot: () =>
+    call<{
+      user: User | null;
+      logged_in: boolean;
+      base: string;
+      strict_security?: boolean;
+      cli_relaxed?: boolean;
+    }>("app_boot"),
+  securitySet: (strict: boolean) => call<boolean>("security_set", { strict }),
   login: (username: string, password: string) =>
     call<{ user: User }>("api_login", { username, password }),
   register: (username: string, password: string, email = "") =>
