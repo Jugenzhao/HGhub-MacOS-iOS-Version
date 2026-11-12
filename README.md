@@ -6,14 +6,17 @@
 
 **黄果短剧跨平台客户端 —— 原生支持 macOS · iOS · Windows · Android**
 
-[![Release iOS](https://img.shields.io/badge/iOS-IPA%20(TrollStore%20%2F%20AltStore)-007AFF?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.0-ios)
-[![Release macOS](https://img.shields.io/badge/macOS-Universal%20%2F%20Apple%20Silicon%20%2F%20Intel-111111?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.0-macos)
+[![Release iOS](https://img.shields.io/badge/iOS-IPA%20(TrollStore%20%2F%20AltStore)-007AFF?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-ios)
+[![Release macOS](https://img.shields.io/badge/macOS-Universal%20%2F%20Apple%20Silicon%20%2F%20Intel-111111?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-macos)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.x-24C8DB?style=flat-square&logo=tauri)](https://v2.tauri.app/)
-[![Version](https://img.shields.io/badge/version-v1.2.0-success?style=flat-square)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
+[![Version](https://img.shields.io/badge/version-v1.2.1-success?style=flat-square)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
 
-[📥 下载 iOS 版 (.ipa)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.0-ios) · [💻 下载 macOS 版 (.dmg)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.0-macos) · [📦 查看全部 Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
+[📥 下载 iOS 版 (.ipa)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-ios) · [💻 下载 macOS 版 (.dmg)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-macos) · [📦 查看全部 Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
 
 </div>
+
+> [!WARNING]
+> **⚠️ 重要提醒（仓库下线预告）**：上游原版仓库（`Minireel/HGhub`）目前已删库停更，**本仓库预计也将在近期下线归档/删除**。请有需要的用户尽快前往 [GitHub Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases) 下载保存最新安装包（`v1.2.1`），或自行 Clone / 备份全部源码。
 
 ---
 
@@ -26,6 +29,10 @@
 ---
 
 ## ✨ 核心功能特性
+
+### 🆕 v1.2.1 修复更新
+- **修复视频无法加载（仅有封面）问题**：全面适配最新播放鉴权协议（切换至 `POST /api/videos/{id}/episodes/{ep}/playback` 与 `POST /api/posts/{id}/playback` 接口，优先解析 `streams.main` 兼容流并动态注入 CDN 鉴权请求头），恢复短剧信息流、选集与吃瓜视频正常播放。
+- **新增内置可用镜像线路**：补充最新实测可用 API 线路，开箱即连免手动寻址。
 
 ### 🆕 v1.2.0 新增特性
 - **播放控制锁（防误触）**：播放界面新增一键锁屏按钮，锁定后屏蔽手势、进度条、选集与快捷键误触，仅保留半透明解锁入口。
@@ -65,22 +72,22 @@
 
 请前往 [**GitHub Releases 页面**](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases) 下载对应平台的最新安装包：
 
-### 1. iOS / iPadOS 安装说明（[`HGhub_1.2.0_ios.ipa`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.0-ios)）
+### 1. iOS / iPadOS 安装说明（[`HGhub_1.2.1_ios.ipa`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-ios)）
 
 > Release 提供的 `.ipa` 为已内嵌完整静态前端资源的**免签名生产包（Unsigned Production IPA）**，支持以下任意方式安装（系统要求 iOS / iPadOS 15.0+）：
 
 | 安装工具 | 适用设备 | 安装步骤 |
 | :--- | :--- | :--- |
-| **TrollStore（巨魔商店）** | iOS 14.0 – 17.0 支持巨魔设备 | 下载 `HGhub_1.2.0_ios.ipa` → 在「文件」中共享给 **TrollStore** 直接永久安装（推荐） |
+| **TrollStore（巨魔商店）** | iOS 14.0 – 17.0 支持巨魔设备 | 下载 `HGhub_1.2.1_ios.ipa` → 在「文件」中共享给 **TrollStore** 直接永久安装（推荐） |
 | **AltStore / SideStore** | 任意 iOS 设备（免费 Apple ID） | 打开 AltStore / SideStore → 点击 `+` 导入 `.ipa` 自签安装（每 7 天自动刷新） |
 | **Sideloadly** | 任意 iOS 设备（电脑辅助自签） | 连接电脑打开 Sideloadly → 拖入 `.ipa` 输入 Apple ID 签名安装 |
 | **轻松签 (ESign) / Feather / 牛蛙助手** | 拥有个人或企业证书设备 | 导入 `.ipa` 至签名工具 → 选择自有证书签名后直接安装 |
 
-### 2. macOS 安装说明（[`v1.2.0-macos`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.0-macos)）
+### 2. macOS 安装说明（[`v1.2.1-macos`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-macos)）
 
-- **Apple Silicon (M1 / M2 / M3 / M4 系列芯片)**：推荐下载 `HGhub_1.2.0_arm64.dmg`
-- **Intel 处理器 Mac**：推荐下载 `HGhub_1.2.0_x64.dmg`
-- **Universal 通用版**：下载 `HGhub_1.2.0_universal.dmg`
+- **Apple Silicon (M1 / M2 / M3 / M4 系列芯片)**：推荐下载 `HGhub_1.2.1_arm64.dmg`
+- **Intel 处理器 Mac**：推荐下载 `HGhub_1.2.1_x64.dmg`
+- **Universal 通用版**：下载 `HGhub_1.2.1_universal.dmg`
 
 > **💡 macOS 首次打开提示「已损坏」或「无法验证开发者」解决方法：**
 > 由于开源版本未挂载付费 Apple Developer ID 公证（仅做 Ad-hoc 签名），将 `HGhub.app` 拖入「应用程序（Applications）」后，若首次打开被 Gatekeeper 拦截，请在「终端（Terminal）」执行以下命令清除隔离属性即可正常打开：
