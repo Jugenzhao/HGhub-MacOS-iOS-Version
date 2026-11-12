@@ -2,7 +2,9 @@ import React, { useEffect, useImperativeHandle, useRef, forwardRef, useState } f
 import Hls from "hls.js";
 import { isLocalMedia, platform, playlist } from "../api";
 import { mediaResource, observeHls, usePlayerDiagnostics } from "../playbackDiagnostics";
+import { useStore } from "../store";
 import { usePlaybackActivity } from "../usePlaybackActivity";
+import SuperResCanvas, { getSvgFilterUrl, SuperResSvgDefs } from "./SuperResCanvas";
 
 export type VideoHandle = {
   el: () => HTMLVideoElement | null;
@@ -60,6 +62,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const recoverTimerRef = useRef<number | null>(null);
   const lastSizeRef = useRef({ w: 0, h: 0 });
   const [ready, setReady] = useState(false);
+  const [svgFallback, setSvgFallback] = useState(false);
+  const store = useStore();
+  const srMode = store?.srMode ?? "off";
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
 
@@ -316,9 +321,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   }, [src]);
 
   const hasTransform = scale !== 1 || panX !== 0 || panY !== 0;
+  const videoFilter = svgFallback ? getSvgFilterUrl(srMode) : undefined;
 
   return (
     <div className={`relative w-full h-full bg-black overflow-hidden ${className}`}>
+      <SuperResSvgDefs />
       {!ready && poster && (
         <img
           src={poster}
@@ -326,6 +333,13 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           className={`absolute inset-0 w-full h-full pointer-events-none ${fit === "cover" ? "object-cover" : "object-contain"}`}
         />
       )}
+      <div
+        className="relative w-full h-full"
+        style={{
+          transform: hasTransform ? `translate3d(${panX}px, ${panY}px, 0) scale(${scale})` : "translateZ(0)",
+          transformOrigin: "center center",
+          transition: isGesturing ? "none" : "transform .2s cubic-bezier(.2,0,0,1)",
+        }}>
       <video
         ref={videoRef}
         playsInline
@@ -337,9 +351,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"}`}
         style={{
           opacity: ready ? 1 : 0,
-          transform: hasTransform ? `translate3d(${panX}px, ${panY}px, 0) scale(${scale})` : "translateZ(0)",
-          transformOrigin: "center center",
-          transition: isGesturing ? "opacity .25s" : "opacity .25s, transform .2s cubic-bezier(.2,0,0,1)",
+          filter: videoFilter,
+          transition: "opacity .25s",
         }}
         onLoadedData={(e) => {
           const v = e.target as HTMLVideoElement;
@@ -399,6 +412,17 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           }
         }}
       />
+      <SuperResCanvas
+        videoRef={videoRef}
+        mode={srMode}
+        active={active}
+        ready={ready}
+        fit={fit}
+        srcKey={src}
+        onFallbackChange={setSvgFallback}
+        onTrace={trace}
+      />
+      </div>
     </div>
   );
 });

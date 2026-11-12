@@ -7,11 +7,12 @@ import { Avatar, Img, Sheet } from "./ui";
 import VideoSurface, { type VideoHandle } from "./VideoSurface";
 import PlayerControls from "./PlayerControls";
 import PlaybackLock from "./PlaybackLock";
+import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "./SuperResCanvas";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { setBackHandler } from "../back";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, IStar, IStarF, IVol, IVolMute,
+  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVol, IVolMute,
 } from "../icons";
 
 type Props = {
@@ -31,7 +32,7 @@ type Props = {
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen } = store;
+  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, srMode, setSrMode } = store;
   const isDesktop = !isMobile;
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -81,6 +82,37 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       lastTapRef.current.timer = null;
     }
   };
+
+  /* 舞台内联超分模式提示（自动随 .fs-landscape 旋转保持正方向） */
+  const [srHud, setSrHud] = useState<typeof srMode | null>(null);
+  const [srMenuPos, setSrMenuPos] = useState<"portrait" | "fs-top" | "fs-bottom" | null>(null);
+  const srMenuDismissedAtRef = useRef(0);
+  const prevSrRef = useRef(srMode);
+  useEffect(() => {
+    if (prevSrRef.current === srMode) return;
+    prevSrRef.current = srMode;
+    if (!active) return;
+    setSrHud(srMode);
+    const tid = window.setTimeout(() => setSrHud(null), 1300);
+    return () => window.clearTimeout(tid);
+  }, [srMode, active]);
+
+  useEffect(() => {
+    if (!srMenuPos) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("[data-sr-slot]")) {
+        srMenuDismissedAtRef.current = Date.now();
+        setSrMenuPos(null);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [srMenuPos]);
+
+  useEffect(() => {
+    setSrMenuPos(null);
+  }, [clean, controlsLocked, fs, index, active]);
 
   /* 桌面：鼠标闲置 2.8s 自动隐藏播放器 UI（沉浸） */
   const [idle, setIdle] = useState(false);
@@ -647,6 +679,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         lastTapRef.current.time = 0;
         videoRef.current?.toggle();
       } else {
+        // 如果刚才的点击刚关闭超分档位选单，则本次单击仅关闭选单，不误触发清屏
+        if (Date.now() - srMenuDismissedAtRef.current < 320) return;
         // 单击屏幕：切换清屏模式（消除或恢复所有界面控件，只显示视频内容）
         lastTapRef.current.time = now;
         clearTapTimer();
@@ -671,13 +705,21 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const lockControls = () => { setPanel(null); setControlsLocked(true); };
 
-  /* 长按倍速 / 双指缩放 / 全屏期间禁止外层列表原生滚动 */
+  /* 长按倍速 / 双指缩放 / 全屏期间禁止外层列表原生滚动（交互按钮豁免以免吞掉 iOS click） */
   useEffect(() => {
     if (isDesktop) return undefined;
     const el = boxRef.current;
     if (!el) return undefined;
     const fn = (e: TouchEvent) => {
-      if (holdRef.current || pinchRef.current || fs || e.touches.length >= 2) {
+      if (e.touches.length >= 2 || pinchRef.current || holdRef.current) {
+        e.preventDefault();
+        return;
+      }
+      if (fs) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest("button, input, a, [role='button'], [data-no-gesture]")) {
+          return;
+        }
         e.preventDefault();
       }
     };
@@ -905,29 +947,98 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     </div>
                   )}
 
+                  {/* 移动端：舞台内联超分切换正方向 HUD（自适应横屏/旋转方向） */}
+                  {!isDesktop && active && srHud && (
+                    <div
+                      className="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-1.5 px-3.5 h-8 rounded-full backdrop-blur-md text-[12px] font-bold elev-2 a-fade hg-chip-strong"
+                      style={{
+                        top: rotated
+                          ? 58
+                          : vpLandscape
+                            ? "calc(max(env(safe-area-inset-top, 0px), 18px) + 44px)"
+                            : fs
+                              ? "calc(var(--sat, 0px) + 52px)"
+                              : "calc(var(--sat, 0px) + 56px)",
+                      }}>
+                      <ISparkF size={13} className={srHud === "off" ? "hg-ink-3" : "text-primary"} />
+                      <span>{SR_PRESET_MAP[srHud].hudText}</span>
+                    </div>
+                  )}
+
                   {/* 移动端：沉浸全屏控制栏（清屏 clean 模式下隐藏，单击屏幕可呼出/隐藏） */}
-                  {!isDesktop && fs && !clean && !controlsLocked && (
+                  {!isDesktop && active && fs && !clean && !controlsLocked && (
                     <>
-                      <div className="absolute right-4 z-40 flex items-center gap-2"
-                        style={{ top: rotated || vpLandscape ? 14 : "calc(var(--sat, 0px) + 8px)" }}>
-                        <button onClick={lockControls} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false}
+                      <div
+                        data-no-gesture
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        className="absolute z-40 flex items-center gap-2"
+                        style={{
+                          top: rotated ? 16 : vpLandscape ? "max(env(safe-area-inset-top, 0px), 18px)" : "calc(var(--sat, 0px) + 8px)",
+                          right: rotated ? 20 : vpLandscape ? "max(env(safe-area-inset-right, 0px), 24px)" : 16,
+                        }}>
+                        <div data-sr-slot className="relative">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSrMenuPos((pos) => (pos === "fs-top" ? null : "fs-top"));
+                            }}
+                            aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`}
+                            aria-expanded={srMenuPos === "fs-top"}
+                            title="选择 GPU 画质超分档位"
+                            aria-pressed={srMode !== "off"}
+                            className={`h-9 px-3 rounded-full backdrop-blur-md flex items-center gap-1 text-[11.5px] font-bold pressable elev-1 ${
+                              srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip-strong hg-ink-2"
+                            }`}>
+                            <ISparkF size={13} />
+                            <span>{SR_SHORT_LABEL[srMode]}</span>
+                          </button>
+                          {srMenuPos === "fs-top" && (
+                            <SuperResMenu
+                              current={srMode}
+                              placement="down"
+                              align="right"
+                              onSelect={(m) => {
+                                setSrMode(m);
+                                setSrMenuPos(null);
+                              }}
+                            />
+                          )}
+                        </div>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); lockControls(); }} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false}
                           className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
                           <ILockF size={17} />
                         </button>
-                        <button onClick={exitFs} aria-label="退出全屏"
+                        <button type="button" onClick={(e) => { e.stopPropagation(); exitFs(); }} aria-label="退出全屏"
                           className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
                           <ICompress size={18} />
                         </button>
                       </div>
                       {zoom.scale > 1.05 && (
                         <button
-                          onClick={() => setZoom({ scale: 1, x: 0, y: 0, gesturing: false })}
-                          className="hg-chip-strong absolute left-4 z-40 px-3 h-8 rounded-full backdrop-blur-md text-[11.5px] font-semibold flex items-center gap-1 pressable elev-1"
-                          style={{ top: rotated || vpLandscape ? 14 : "calc(var(--sat, 0px) + 8px)" }}>
+                          type="button"
+                          data-no-gesture
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); setZoom({ scale: 1, x: 0, y: 0, gesturing: false }); }}
+                          className="hg-chip-strong absolute z-40 px-3 h-8 rounded-full backdrop-blur-md text-[11.5px] font-semibold flex items-center gap-1 pressable elev-1"
+                          style={{
+                            top: rotated ? 16 : vpLandscape ? "max(env(safe-area-inset-top, 0px), 18px)" : "calc(var(--sat, 0px) + 8px)",
+                            left: rotated ? 20 : vpLandscape ? "max(env(safe-area-inset-left, 0px), 24px)" : 16,
+                          }}>
                           还原画面 ({zoom.scale.toFixed(1)}x)
                         </button>
                       )}
-                      <div className="absolute inset-x-0 z-30 px-4" style={{ bottom: rotated || vpLandscape ? 46 : "calc(var(--sab, 0px) + 52px)", height: 26 }}>
+                      <div
+                        data-no-gesture
+                        className="absolute inset-x-0 z-30"
+                        style={{
+                          bottom: rotated ? 48 : vpLandscape ? "calc(max(env(safe-area-inset-bottom, 0px), 12px) + 42px)" : "calc(var(--sab, 0px) + 52px)",
+                          paddingLeft: vpLandscape ? "max(env(safe-area-inset-left, 0px), 20px)" : 16,
+                          paddingRight: vpLandscape ? "max(env(safe-area-inset-right, 0px), 20px)" : 16,
+                          height: 26,
+                        }}>
                         <div className="relative h-full" style={{ touchAction: "none" }}
                           onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
                           <div className={`absolute inset-x-0 bottom-[10px] rounded-full transition-all ${barPct !== null ? "h-[5px]" : "h-[3px]"}`}
@@ -941,21 +1052,59 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                           )}
                         </div>
                       </div>
-                      <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
-                        style={{ bottom: rotated || vpLandscape ? 10 : "calc(var(--sab, 0px) + 10px)" }}>
-                        <button onClick={() => videoRef.current?.toggle()}
+                      <div
+                        data-no-gesture
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        className="absolute inset-x-0 z-40 flex items-center gap-2.5"
+                        style={{
+                          bottom: rotated ? 12 : vpLandscape ? "max(env(safe-area-inset-bottom, 0px), 12px)" : "calc(var(--sab, 0px) + 10px)",
+                          paddingLeft: vpLandscape ? "max(env(safe-area-inset-left, 0px), 20px)" : 16,
+                          paddingRight: vpLandscape ? "max(env(safe-area-inset-right, 0px), 20px)" : 16,
+                        }}>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); videoRef.current?.toggle(); }}
                           className="hg-chip shrink-0 w-9 h-9 rounded-full flex items-center justify-center pressable">
                           {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
                         </button>
                         <span className="shrink-0 text-[11.5px] font-semibold hg-ink-2 tabular-nums">{fmtTime(time)}</span>
+                        <div data-sr-slot className="relative ml-auto shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSrMenuPos((pos) => (pos === "fs-bottom" ? null : "fs-bottom"));
+                            }}
+                            aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`}
+                            aria-expanded={srMenuPos === "fs-bottom"}
+                            title="选择 GPU 画质超分档位"
+                            aria-pressed={srMode !== "off"}
+                            className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[11.5px] font-bold pressable ${
+                              srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"
+                            }`}>
+                            <ISparkF size={12} />{SR_SHORT_LABEL[srMode]}
+                          </button>
+                          {srMenuPos === "fs-bottom" && (
+                            <SuperResMenu
+                              current={srMode}
+                              placement="up"
+                              align="right"
+                              onSelect={(m) => {
+                                setSrMode(m);
+                                setSrMenuPos(null);
+                              }}
+                            />
+                          )}
+                        </div>
                         <button
-                          onClick={() => {
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if (speedLock) { setSpeedLock(false); return; }
                             const seq = [1, 1.25, 1.5, 2];
                             const idx = seq.indexOf(rate);
                             setRate(seq[(idx + 1) % seq.length]);
                           }}
-                          className={`ml-auto shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[12px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                          className={`shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[12px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
                           <IBoltF size={12} />{effRate}x
                         </button>
                         <span className="shrink-0 text-[11.5px] hg-ink-4 tabular-nums">{fmtTime(duration)}</span>
@@ -1039,7 +1188,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <small>{index + 1} / {videoIds.length}</small>
                   </div>
                 ) : (
-                  <div className="absolute inset-x-0 z-20 flex items-center gap-2 px-2.5" style={{ top: "calc(var(--sat, 0px) + 8px)", paddingRight: 148 }}>
+                  <div className="absolute inset-x-0 z-20 flex items-center gap-2 px-2.5" style={{ top: "calc(var(--sat, 0px) + 8px)", paddingRight: 214 }}>
                     <button onClick={onBack} aria-label="返回" className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><IBack size={20} /></button>
                     <span className="text-[14.5px] font-semibold hg-ink hg-ov-shadow truncate">{title}</span>
                     <span className="ml-auto px-2 py-0.5 rounded-full hg-chip text-[11px] font-semibold" style={{ color: "rgba(255,255,255,.9)" }}>{index + 1} / {videoIds.length}</span>
@@ -1305,6 +1454,35 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       </div>
       {!isDesktop && !fs && !clean && !controlsLocked && active && (
         <div className="absolute right-3 z-40 flex items-center gap-2" style={{ top: "calc(var(--sat, 0px) + 6px)" }}>
+          <div data-sr-slot className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSrMenuPos((pos) => (pos === "portrait" ? null : "portrait"));
+              }}
+              aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`}
+              aria-expanded={srMenuPos === "portrait"}
+              title="选择 GPU 画质超分档位"
+              aria-pressed={srMode !== "off"}
+              className={`h-9 px-2.5 rounded-full flex items-center gap-1 text-[11.5px] font-bold pressable elev-1 ${
+                srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"
+              }`}>
+              <ISparkF size={13} />
+              <span>{SR_SHORT_LABEL[srMode]}</span>
+            </button>
+            {srMenuPos === "portrait" && (
+              <SuperResMenu
+                current={srMode}
+                placement="down"
+                align="right"
+                onSelect={(m) => {
+                  setSrMode(m);
+                  setSrMenuPos(null);
+                }}
+              />
+            )}
+          </div>
           <button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}

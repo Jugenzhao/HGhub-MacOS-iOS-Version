@@ -131,6 +131,10 @@ jobs:
             本项目为 [Minireel/HGhub](https://github.com/Minireel/HGhub) 官方源码针对 macOS 平台的编译产物。
             原项目已在 PR #1 完成 macOS 适配支持，但官方尚未在 Release 页面发布 Mac 版产物。
 
+            ### ✨ v${{ steps.ver.outputs.version }} 增强特性
+            - **多档位 GPU 实时视频超分引擎（WebGL2 / Apple Metal）**：桌面端底部控制栏内置「自然清透 / 影院质感 / 超清锐利 / 漫剧锐线 / 二次元重绘 / 原画直通」6 档实时画质超分选单，支持静帧与播放中一键对比。
+            - **全功能媒体网关与原生交互**：支持最新鉴权播放接口、原生叠加红绿灯标题栏、影院模式、画中画及深浅主题切换。
+
             ### 下载说明
             - **Apple Silicon (M1/M2/M3/M4 系列芯片)**: 推荐下载 `HGhub_${{ steps.ver.outputs.version }}_arm64.dmg`
             - **Intel 芯片**: 推荐下载 `HGhub_${{ steps.ver.outputs.version }}_x64.dmg`

@@ -7,6 +7,7 @@ import type { User } from "./types";
 export type Platform = "android" | "ios" | "windows" | "macos";
 export type Theme = "dark" | "light";
 export type Tab = "home" | "search" | "category" | "profile";
+export type SuperResMode = "off" | "natural" | "cinema" | "crisp" | "anime_3d" | "anime_2d";
 
 /** 播放页上下文：ids 是来源列表，index 是当前条目。 */
 export type FeedContext = {
@@ -52,12 +53,14 @@ type Persist = {
   muteOnStartup: boolean;
   volume: number;
   searchHist: string[];
+  srMode: SuperResMode;
 };
 
 const LS = "hghub_app_v1";
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   muted: true, muteOnStartup: true, volume: 0.7, searchHist: [],
+  srMode: "natural",
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -84,7 +87,14 @@ function loadPersist(): Persist {
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
     // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
     const muteOnStartup = p.muteOnStartup !== false;
-    return { ...p, muteOnStartup, muted: muteOnStartup || p.muted === true, history: normalizeHistory(p.history) };
+    const rawSr = (p as { srMode?: string }).srMode;
+    const srMode: SuperResMode =
+      rawSr === "fsr" ? "natural"
+      : rawSr === "anime" ? "anime_3d"
+      : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
+        ? rawSr
+        : "natural";
+    return { ...p, muteOnStartup, muted: muteOnStartup || p.muted === true, history: normalizeHistory(p.history), srMode };
   } catch {
     return DEFAULTS;
   }
@@ -126,6 +136,7 @@ type Store = {
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
   muteOnStartup: boolean; setMuteOnStartup: (on: boolean) => void;
   volume: number; setVolume: (v: number) => void;
+  srMode: SuperResMode; setSrMode: (m: SuperResMode) => void; cycleSrMode: () => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
@@ -285,6 +296,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
+  const setSrMode = useCallback((srMode: SuperResMode) => {
+    setP((s) => ({ ...s, srMode }));
+  }, []);
+  const cycleSrMode = useCallback(() => {
+    const order: SuperResMode[] = ["natural", "cinema", "crisp", "anime_3d", "anime_2d", "off"];
+    const next = order[(order.indexOf(p.srMode) + 1) % order.length];
+    setP((s) => ({ ...s, srMode: next }));
+    const labels: Record<SuperResMode, string> = {
+      natural: "自然清透 · 柔和抗锯齿",
+      cinema: "影院质感 · 通透微反差",
+      crisp: "超清锐利 · 强效细节增强",
+      anime_3d: "漫剧锐线 · 零涂抹保纹理",
+      anime_2d: "二次元重绘 · 净底重描边",
+      off: "原画直通 · 已关闭超分",
+    };
+    toast(`画质增强：${labels[next]}`, next === "off" ? "info" : "ok");
+  }, [p.srMode, toast]);
 
   const value = useMemo<Store>(() => ({
     platform: envPlatform,
@@ -296,6 +324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isFav: (id) => p.favs.includes(id),
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume,
+    srMode: p.srMode, setSrMode, cycleSrMode,
     theater, setTheater, fs, setFs, clean, setClean,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     searchHist: p.searchHist, addSearch, clearSearchHist,
@@ -303,7 +332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toasts, toast,
   }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setMuteOnStartup, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setMuteOnStartup, setVolume, setSrMode, cycleSrMode, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, theater, setTheater, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

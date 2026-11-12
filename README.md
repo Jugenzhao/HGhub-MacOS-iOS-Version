@@ -6,17 +6,17 @@
 
 **黄果短剧跨平台客户端 —— 原生支持 macOS · iOS · Windows · Android**
 
-[![Release iOS](https://img.shields.io/badge/iOS-IPA%20(TrollStore%20%2F%20AltStore)-007AFF?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-ios)
-[![Release macOS](https://img.shields.io/badge/macOS-Universal%20%2F%20Apple%20Silicon%20%2F%20Intel-111111?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-macos)
+[![Release iOS](https://img.shields.io/badge/iOS-IPA%20(TrollStore%20%2F%20AltStore)-007AFF?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.2-ios)
+[![Release macOS](https://img.shields.io/badge/macOS-Universal%20%2F%20Apple%20Silicon%20%2F%20Intel-111111?style=flat-square&logo=apple)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.2-macos)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.x-24C8DB?style=flat-square&logo=tauri)](https://v2.tauri.app/)
-[![Version](https://img.shields.io/badge/version-v1.2.1-success?style=flat-square)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
+[![Version](https://img.shields.io/badge/version-v1.2.2-success?style=flat-square)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
 
-[📥 下载 iOS 版 (.ipa)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-ios) · [💻 下载 macOS 版 (.dmg)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-macos) · [📦 查看全部 Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
+[📥 下载 iOS 版 (.ipa)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.2-ios) · [💻 下载 macOS 版 (.dmg)](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.2-macos) · [📦 查看全部 Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases)
 
 </div>
 
 > [!WARNING]
-> **⚠️ 重要提醒（仓库下线预告）**：上游原版仓库（`Minireel/HGhub`）目前已删库停更，**本仓库预计也将在近期下线归档/删除**。请有需要的用户尽快前往 [GitHub Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases) 下载保存最新安装包（`v1.2.1`），或自行 Clone / 备份全部源码。
+> **⚠️ 重要提醒（仓库下线预告）**：上游原版仓库（`Minireel/HGhub`）目前已删库停更，**本仓库预计也将在近期下线归档/删除**。请有需要的用户尽快前往 [GitHub Releases](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases) 下载保存最新安装包（`v1.2.2`），或自行 Clone / 备份全部源码。
 
 ---
 
@@ -29,6 +29,20 @@
 ---
 
 ## ✨ 核心功能特性
+
+### 🆕 v1.2.2 新增特性：多档位 GPU 实时视频超分引擎（WebGL2 / Metal）
+针对低码率在线短剧与漫剧片源，客户端内置基于 **WebGL2 GLSL ES 3.0 → Apple Metal** 的单通道零拷贝实时画质超分引擎（支持像素健康自检与硬件卷积零黑屏自动回退），在**播放中与暂停静帧状态下均可随时打开浮层选单直达切换并实时对比**：
+
+| 档位名称 | 按钮标签 | 核心算法与画质特点 | 推荐片源 / 场景 |
+| :--- | :---: | :--- | :--- |
+| **自然清透** | `自然` | 对角等值线抗锯齿 + 严格零白边过冲的温和 RCAS，带肤质噪点保护门限 | 真人短剧日常默认推荐，耐看无硬边 |
+| **影院质感** | `影院` | 自适应 RCAS 细节提清 + 局部微反差立体感（Local Clarity）+ 柔和胶片去灰雾曲线与自然净度 | 暗场偏灰、对比度偏平的实拍短剧 |
+| **超清锐利** | `锐利` | 高频强力适应 RCAS + 亚像素高频细节重建 + 微余量抗振铃钳制 | 模糊低清片源、远景人脸或小字幕强化 |
+| **漫剧锐线** | `漫剧` | **零双边磨皮模糊（100% 保留发丝/材质纹理）**，仅做轻量轮廓收紧 + 精细纹理 RCAS 重塑 | **AI 漫剧 / 3D 国漫 / 半写实漫剧推荐**，告别塑料涂抹感 |
+| **二次元重绘** | `二次元` | 窄门限净底去蚊式块噪 + 双跨度 Sobel 描边收窄加固 + 鲜明色彩补偿 | 纯 2D 平涂线条番剧 / 手绘风动画 |
+| **原画直通** | `原画` | 完全旁路超分渲染管线，直出原始解码画面 | 用于左右对比超分前后效果、极限省电 |
+
+- **全端直达选单开关**：在移动端竖屏右上角、全屏横屏右上角/底部控制栏、吃瓜视频播放器以及 macOS 桌面端底部控制栏中，点击超分胶囊即可弹出带有特征说明的 6 档位毛玻璃选单，任意两档之间一键切换对比（竖屏下自动跟随屏幕保持正方向）。
 
 ### 🆕 v1.2.1 修复更新
 - **修复视频无法加载（仅有封面）问题**：全面适配最新播放鉴权协议（切换至 `POST /api/videos/{id}/episodes/{ep}/playback` 与 `POST /api/posts/{id}/playback` 接口，优先解析 `streams.main` 兼容流并动态注入 CDN 鉴权请求头），恢复短剧信息流、选集与吃瓜视频正常播放。
@@ -72,22 +86,22 @@
 
 请前往 [**GitHub Releases 页面**](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases) 下载对应平台的最新安装包：
 
-### 1. iOS / iPadOS 安装说明（[`HGhub_1.2.1_ios.ipa`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-ios)）
+### 1. iOS / iPadOS 安装说明（[`HGhub_1.2.2_ios.ipa`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.2-ios)）
 
 > Release 提供的 `.ipa` 为已内嵌完整静态前端资源的**免签名生产包（Unsigned Production IPA）**，支持以下任意方式安装（系统要求 iOS / iPadOS 15.0+）：
 
 | 安装工具 | 适用设备 | 安装步骤 |
 | :--- | :--- | :--- |
-| **TrollStore（巨魔商店）** | iOS 14.0 – 17.0 支持巨魔设备 | 下载 `HGhub_1.2.1_ios.ipa` → 在「文件」中共享给 **TrollStore** 直接永久安装（推荐） |
+| **TrollStore（巨魔商店）** | iOS 14.0 – 17.0 支持巨魔设备 | 下载 `HGhub_1.2.2_ios.ipa` → 在「文件」中共享给 **TrollStore** 直接永久安装（推荐） |
 | **AltStore / SideStore** | 任意 iOS 设备（免费 Apple ID） | 打开 AltStore / SideStore → 点击 `+` 导入 `.ipa` 自签安装（每 7 天自动刷新） |
 | **Sideloadly** | 任意 iOS 设备（电脑辅助自签） | 连接电脑打开 Sideloadly → 拖入 `.ipa` 输入 Apple ID 签名安装 |
 | **轻松签 (ESign) / Feather / 牛蛙助手** | 拥有个人或企业证书设备 | 导入 `.ipa` 至签名工具 → 选择自有证书签名后直接安装 |
 
-### 2. macOS 安装说明（[`v1.2.1-macos`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.1-macos)）
+### 2. macOS 安装说明（[`v1.2.2-macos`](https://github.com/LNPANDY/HGhub-MacOS-iOS-Version/releases/tag/v1.2.2-macos)）
 
-- **Apple Silicon (M1 / M2 / M3 / M4 系列芯片)**：推荐下载 `HGhub_1.2.1_arm64.dmg`
-- **Intel 处理器 Mac**：推荐下载 `HGhub_1.2.1_x64.dmg`
-- **Universal 通用版**：下载 `HGhub_1.2.1_universal.dmg`
+- **Apple Silicon (M1 / M2 / M3 / M4 系列芯片)**：推荐下载 `HGhub_1.2.2_arm64.dmg`
+- **Intel 处理器 Mac**：推荐下载 `HGhub_1.2.2_x64.dmg`
+- **Universal 通用版**：下载 `HGhub_1.2.2_universal.dmg`
 
 > **💡 macOS 首次打开提示「已损坏」或「无法验证开发者」解决方法：**
 > 由于开源版本未挂载付费 Apple Developer ID 公证（仅做 Ad-hoc 签名），将 `HGhub.app` 拖入「应用程序（Applications）」后，若首次打开被 Gatekeeper 拦截，请在「终端（Terminal）」执行以下命令清除隔离属性即可正常打开：
@@ -108,7 +122,9 @@
 | **iOS / 移动端** | **长按屏幕** | 开启 `2.0x` 倍速快进（长按同时**上滑**可锁定 `2.0x` 倍速） |
 | **iOS / 移动端** | **屏幕左右横滑** | 实时预览并跳转播放进度 |
 | **iOS / 移动端** | **手机横置 / 点「横屏全屏」** | 原生旋转屏幕进入横屏全屏（手机竖回或点右上角按钮退出） |
+| **iOS / 移动端** | **播放界面「自然/漫剧/原画」超分胶囊** | 展开 6 档 GPU 实时视频超分浮层选单（支持暂停定帧对比） |
 | **macOS / 桌面端** | `Space`（空格） | 播放 / 暂停 |
+| **macOS / 桌面端** | **底部控制栏 ✨ 超分胶囊** | 展开 6 档 WebGL2 / Metal 画质超分档位选单 |
 | **macOS / 桌面端** | `↑` / `↓` | 切换上一部 / 下一部短剧 |
 | **macOS / 桌面端** | `←` / `→` | 快退 5 秒 / 快进 5 秒 |
 | **macOS / 桌面端** | `F` / `T` / `M` | 全屏 (`F`) / 影院模式 (`T`) / 静音 (`M`) |
