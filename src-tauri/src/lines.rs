@@ -13,7 +13,10 @@ pub const FIXED: [(&str, &str); 2] = [
     ("固定线路 2", "https://huangguoai.ai"),
 ];
 
-const PUBLISH_PAGE: &str = "https://huangguoai.pages.dev/";
+const PUBLISH_PAGES: [&str; 2] = [
+    "https://huangguoai.pages.dev/",
+    "https://huang-guo.pages.dev/",
+];
 /// 镜像列表上限（子域 × 域名是笛卡尔积，界面只展示这么多）
 const MIRROR_MAX: usize = 60;
 /// 单条线路探测超时
@@ -28,44 +31,63 @@ pub fn fixed() -> Value {
 
 /// 拉地址发布页 → 解析 publish.js → 拼出镜像地址。只在用户点开「线路」时调用。
 pub async fn mirrors() -> Result<Value, String> {
-    let html = get_text(PUBLISH_PAGE).await?;
-    let js_rel = script_src(&html).unwrap_or_else(|| "publish.js".to_string());
-    let js_url = absolute(PUBLISH_PAGE, &js_rel);
-    let js = get_text(&js_url).await?;
-
-    let domains = js_array(&js, "var urls");
-    let subs = js_array(&js, "var subdomains");
-    if domains.is_empty() {
-        return Err("地址发布页格式有变化：没找到镜像域名".to_string());
-    }
-
-    let mut items: Vec<Value> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    'outer: for domain in domains {
-        let domain = domain.trim_end_matches('/').to_string();
-        if domain.is_empty() {
-            continue;
-        }
-        let hosts: Vec<String> = if subs.is_empty() {
-            vec![domain.clone()]
-        } else {
-            subs.iter().map(|s| format!("{s}.{domain}")).collect()
-        };
-        for host in hosts {
-            if !seen.insert(host.clone()) {
+    let mut last_err = String::from("未能获取地址发布页");
+    for page in PUBLISH_PAGES {
+        let html = match get_text(page).await {
+            Ok(h) => h,
+            Err(e) => {
+                last_err = e;
                 continue;
             }
-            items.push(json!({ "url": format!("https://{host}"), "host": host }));
-            if items.len() >= MIRROR_MAX {
-                break 'outer;
+        };
+        let js_rel = script_src(&html).unwrap_or_else(|| "publish.js".to_string());
+        let js_url = absolute(page, &js_rel);
+        let js = match get_text(&js_url).await {
+            Ok(j) => j,
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
+        };
+
+        let domains = js_array(&js, "var urls");
+        let subs = js_array(&js, "var subdomains");
+        if domains.is_empty() {
+            last_err = "地址发布页格式有变化：没找到镜像域名".to_string();
+            continue;
+        }
+
+        let mut items: Vec<Value> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        'outer: for domain in domains {
+            let domain = domain.trim_end_matches('/').to_string();
+            if domain.is_empty() {
+                continue;
+            }
+            let hosts: Vec<String> = if subs.is_empty() {
+                vec![domain.clone()]
+            } else {
+                subs.iter().map(|s| format!("{s}.{domain}")).collect()
+            };
+            for host in hosts {
+                if !seen.insert(host.clone()) {
+                    continue;
+                }
+                items.push(json!({ "url": format!("https://{host}"), "host": host }));
+                if items.len() >= MIRROR_MAX {
+                    break 'outer;
+                }
             }
         }
-    }
-    if items.is_empty() {
-        return Err("地址发布页里没有可用的镜像地址".to_string());
+        if items.is_empty() {
+            last_err = "地址发布页里没有可用的镜像地址".to_string();
+            continue;
+        }
+
+        return Ok(json!({ "source": page, "script": js_url, "items": items }));
     }
 
-    Ok(json!({ "source": PUBLISH_PAGE, "script": js_url, "items": items }))
+    Err(last_err)
 }
 
 /// 可达性探测（并发 6 条一组）。只报结果，不做自动切换。

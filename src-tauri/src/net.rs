@@ -38,6 +38,131 @@ static BASE: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(DEFAULT_BASE.to_str
 /// 线路配置落盘位置（应用数据目录/line.json），由 [`bind_base`] 在启动时绑定。
 static BASE_FILE: Lazy<RwLock<Option<PathBuf>>> = Lazy::new(|| RwLock::new(None));
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct CdnAuthConfig {
+    m3u8_enabled: bool,
+    other_enabled: bool,
+    auth_key: Option<String>,
+    auth_value: Option<String>,
+    app: Option<String>,
+}
+
+/// 由 `/playback` 接口动态下发的 CDN 鉴权配置。
+static CDN_AUTH: Lazy<RwLock<Option<CdnAuthConfig>>> = Lazy::new(|| RwLock::new(None));
+
+fn valid_cdn_header_name(raw: &str) -> Option<String> {
+    let key = raw.trim();
+    if key.is_empty() || key.len() > 64 {
+        return None;
+    }
+    if !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return None;
+    }
+    let lower = key.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "host" | "authorization" | "cookie" | "referer" | "user-agent" | "origin"
+    ) {
+        return None;
+    }
+    Some(key.to_string())
+}
+
+fn valid_cdn_header_value(raw: &str) -> Option<String> {
+    let val = raw.trim();
+    if val.is_empty() || val.len() > 128 {
+        return None;
+    }
+    if val.chars().any(|c| c.is_control()) {
+        return None;
+    }
+    Some(val.to_string())
+}
+
+fn parse_cdn_auth(cdn: &Value) -> Option<CdnAuthConfig> {
+    let obj = cdn.as_object()?;
+    let m3u8_enabled = obj
+        .get("m3u8Enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let other_enabled = obj
+        .get("otherEnabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let auth_key = obj
+        .get("authKey")
+        .and_then(|v| v.as_str())
+        .and_then(valid_cdn_header_name);
+    let auth_value = obj
+        .get("authValue")
+        .and_then(|v| v.as_str())
+        .and_then(valid_cdn_header_value);
+    let app = match obj.get("app") {
+        Some(Value::String(s)) => valid_cdn_header_value(s),
+        Some(Value::Number(n)) => valid_cdn_header_value(&n.to_string()),
+        _ => None,
+    };
+    Some(CdnAuthConfig {
+        m3u8_enabled,
+        other_enabled,
+        auth_key,
+        auth_value,
+        app,
+    })
+}
+
+/// 根据 `/playback` 返回的 `cdn` 字段更新 CDN 请求头配置。
+pub fn update_cdn_auth(cdn: &Value) {
+    if let Some(cfg) = parse_cdn_auth(cdn) {
+        if let Ok(mut guard) = CDN_AUTH.write() {
+            *guard = Some(cfg);
+        }
+    }
+}
+
+fn build_cdn_headers(cfg: &CdnAuthConfig, raw_url: &str) -> Vec<(String, String)> {
+    let path = url::Url::parse(raw_url)
+        .ok()
+        .map(|u| u.path().to_ascii_lowercase())
+        .unwrap_or_else(|| {
+            raw_url
+                .split(['?', '#'])
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+        });
+    let need_auth = if path.ends_with(".m3u8") {
+        cfg.m3u8_enabled
+    } else if path.ends_with(".ts") || path.ends_with(".m4s") || path.ends_with(".key") {
+        cfg.other_enabled
+    } else {
+        false
+    };
+    if !need_auth {
+        return Vec::new();
+    }
+    let mut headers = Vec::new();
+    if let (Some(k), Some(v)) = (&cfg.auth_key, &cfg.auth_value) {
+        headers.push((k.clone(), v.clone()));
+    }
+    if let Some(app) = &cfg.app {
+        headers.push(("x-cdn-app".to_string(), app.clone()));
+    }
+    headers
+}
+
+/// 返回匹配当前 URL 类型（`.m3u8` / `.ts` / `.m4s` / `.key`）的 CDN 鉴权请求头。
+pub fn cdn_headers_for_url(url: &str) -> Vec<(String, String)> {
+    let cfg = match CDN_AUTH.read() {
+        Ok(guard) => guard.clone(),
+        Err(_) => None,
+    };
+    match cfg {
+        Some(c) => build_cdn_headers(&c, url),
+        None => Vec::new(),
+    }
+}
+
 /// 当前上游基址。
 pub fn base() -> String {
     BASE.read()
@@ -206,6 +331,17 @@ pub async fn get(
     accept: Option<&str>,
     referer: Option<&str>,
 ) -> Result<reqwest::Response, String> {
+    get_with_headers(raw, timeout, accept, referer, &[]).await
+}
+
+/// 不可信 GET（可附带额外已校验请求头，如 CDN 鉴权头）。
+pub async fn get_with_headers(
+    raw: &str,
+    timeout: Duration,
+    accept: Option<&str>,
+    referer: Option<&str>,
+    extra_headers: &[(String, String)],
+) -> Result<reqwest::Response, String> {
     tokio::time::timeout(timeout, async {
         let policy_error = |phase: &str, error: String| {
             crate::playback_log::record("network.target_failed", json!({"resource": crate::playback_log::resource_id(raw), "phase": phase, "error_kind": crate::playback_log::error_kind(&error)}));
@@ -222,6 +358,19 @@ pub async fn get(
             }
             if let Some(value) = referer {
                 request = request.header("Referer", value);
+            }
+            for (name, value) in extra_headers {
+                if let (Some(valid_name), Some(valid_val)) = (
+                    valid_cdn_header_name(name),
+                    valid_cdn_header_value(value),
+                ) {
+                    if let (Ok(hname), Ok(hval)) = (
+                        reqwest::header::HeaderName::from_bytes(valid_name.as_bytes()),
+                        reqwest::header::HeaderValue::from_str(&valid_val),
+                    ) {
+                        request = request.header(hname, hval);
+                    }
+                }
             }
             let response = request.send().await.map_err(|e| err_text(&e))?;
             if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
@@ -425,12 +574,28 @@ where
     Err(last)
 }
 
+/// 仅 `/api/videos/*/playback` 与 `/api/posts/*/playback` 的空对象 POST 属于只读播放请求，允许游客直发与重试。
+pub fn is_playback_request(method: &str, path: &str, body: Option<&Value>) -> bool {
+    if !method.eq_ignore_ascii_case("POST") {
+        return false;
+    }
+    let clean_path = path.split('?').next().unwrap_or("");
+    let valid_path = (clean_path.starts_with("/api/videos/")
+        || clean_path.starts_with("/api/posts/"))
+        && clean_path.ends_with("/playback");
+    let empty_obj = matches!(body, Some(Value::Object(map)) if map.is_empty());
+    valid_path && empty_obj
+}
+
 // 只记录固定的操作类型，不写搜索词、账号、内容 ID 或查询参数。
 fn edge_operation(path: &str) -> &'static str {
     let path = path.split('?').next().unwrap_or("");
     if path.starts_with("/api/videos/category/") {
         "category"
-    } else if path.starts_with("/api/videos/") && path.ends_with("/play") {
+    } else if (path.starts_with("/api/videos/")
+        && (path.ends_with("/play") || path.ends_with("/playback")))
+        || (path.starts_with("/api/posts/") && path.ends_with("/playback"))
+    {
         "play"
     } else if path == "/api/videos" {
         "feed"
@@ -510,8 +675,10 @@ pub async fn edge(
         .to_string();
     let operation = edge_operation(path);
     let mut attempt = 0;
-    let guest_get = method.eq_ignore_ascii_case("GET") && body.is_none() && token.is_none();
-    let can_retry = method.eq_ignore_ascii_case("GET") && body.is_none();
+    let is_ro_get = method.eq_ignore_ascii_case("GET") && body.is_none();
+    let is_pb_post = is_playback_request(method, path, body.as_ref());
+    let guest_get = (is_ro_get || is_pb_post) && token.is_none();
+    let can_retry = is_ro_get || is_pb_post;
     let value = with_retry(can_retry, || {
         attempt += 1;
         let attempt = attempt;
@@ -619,19 +786,28 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
     let mut attempt = 0;
     let url = url.to_string();
     let referer = format!("{}/", base());
+    let extra_headers = cdn_headers_for_url(&url);
     with_retry(true, || {
         attempt += 1;
         let attempt = attempt;
         let resource = resource.clone();
         let url = url.clone();
         let referer = referer.clone();
+        let extra_headers = extra_headers.clone();
         async move {
             let started = Instant::now();
             crate::playback_log::record("network.begin", json!({"request": request, "resource": resource, "attempt": attempt}));
             let mut status = None;
             let mut headers_ms = None;
             let result = async {
-                let resp = get(&url, Duration::from_secs(20), None, Some(&referer)).await?;
+                let resp = get_with_headers(
+                    &url,
+                    Duration::from_secs(20),
+                    None,
+                    Some(&referer),
+                    &extra_headers,
+                )
+                .await?;
                 status = Some(resp.status().as_u16());
                 headers_ms = Some(started.elapsed().as_millis() as u64);
                 if !resp.status().is_success() {
@@ -857,6 +1033,91 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.contains("禁止访问"));
+    }
+
+    #[test]
+    fn recognizes_playback_post_requests() {
+        assert!(is_playback_request(
+            "POST",
+            "/api/videos/12/episodes/1/playback",
+            Some(&json!({}))
+        ));
+        assert!(is_playback_request(
+            "post",
+            "/api/posts/65/playback?x=1",
+            Some(&json!({}))
+        ));
+        assert!(!is_playback_request(
+            "POST",
+            "/api/videos/12/episodes/1/playback",
+            Some(&json!({"k": "v"}))
+        ));
+        assert!(!is_playback_request(
+            "POST",
+            "/api/videos/12/episodes/1/playback",
+            None
+        ));
+        assert!(!is_playback_request(
+            "GET",
+            "/api/videos/12/episodes/1/playback",
+            Some(&json!({}))
+        ));
+        assert!(!is_playback_request(
+            "POST",
+            "/api/account/loginByPassword",
+            Some(&json!({}))
+        ));
+        assert_eq!(edge_operation("/api/videos/12/episodes/1/playback"), "play");
+        assert_eq!(edge_operation("/api/posts/65/playback"), "play");
+    }
+
+    #[test]
+    fn cdn_headers_match_extension_and_reject_unsafe_headers() {
+        let cfg = parse_cdn_auth(&json!({
+            "m3u8Enabled": true,
+            "otherEnabled": false,
+            "authKey": "x-cdn-auth",
+            "authValue": "secret-val",
+            "app": "150"
+        }))
+        .expect("valid cdn config");
+
+        let m3u8_headers = build_cdn_headers(&cfg, "https://cdn.example/a/index.m3u8?t=1");
+        assert_eq!(
+            m3u8_headers,
+            vec![
+                ("x-cdn-auth".to_string(), "secret-val".to_string()),
+                ("x-cdn-app".to_string(), "150".to_string()),
+            ]
+        );
+        assert!(build_cdn_headers(&cfg, "https://cdn.example/a/seg0.ts").is_empty());
+        assert!(build_cdn_headers(&cfg, "https://cdn.example/a/cover.jpg").is_empty());
+
+        let all_cfg = parse_cdn_auth(&json!({
+            "m3u8Enabled": false,
+            "otherEnabled": true,
+            "authKey": "x-cdn-auth",
+            "authValue": "seg-val",
+            "app": 150
+        }))
+        .expect("valid seg config");
+        assert_eq!(
+            build_cdn_headers(&all_cfg, "https://cdn.example/a/crypt.key"),
+            vec![
+                ("x-cdn-auth".to_string(), "seg-val".to_string()),
+                ("x-cdn-app".to_string(), "150".to_string()),
+            ]
+        );
+        assert!(!build_cdn_headers(&all_cfg, "https://cdn.example/a/seg.m4s").is_empty());
+
+        // 非法或敏感 header 名称、控制字符必须被过滤
+        assert!(valid_cdn_header_name("Host").is_none());
+        assert!(valid_cdn_header_name("Authorization").is_none());
+        assert!(valid_cdn_header_name("Cookie").is_none());
+        assert!(valid_cdn_header_name("X-Bad\r\nHeader").is_none());
+        assert!(valid_cdn_header_name(&"a".repeat(65)).is_none());
+        assert!(valid_cdn_header_value("val\nnext").is_none());
+        assert!(valid_cdn_header_value(&"v".repeat(129)).is_none());
     }
 
     /// 手动跑：`cargo test --lib -- --ignored net::tests::diag -- --nocapture`

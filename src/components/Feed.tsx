@@ -362,6 +362,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => {
     if (!curId) return;
     if (playUrls[playKey]) return;
+    if (kind === "post") {
+      const postUrl = posts[curId]?.video_url?.trim();
+      if (postUrl) {
+        setPlayUrls((m) => ({ ...m, [playKey]: postUrl }));
+        addHistory(curId, curEp);
+      }
+      return;
+    }
     let alive = true;
     api.play(curId, curEp)
       .then((info) => {
@@ -373,7 +381,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       .catch((e) => { if (alive) setErr((e as Error).message || "取播放地址失败"); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curId, curEp]);
+  }, [kind, curId, curEp, posts]);
 
   /* 切换条目/集数时重置播放与缩放状态 */
   useEffect(() => {
