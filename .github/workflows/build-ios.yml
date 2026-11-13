@@ -88,11 +88,11 @@ jobs:
           IPA_PATH=$(find src-tauri/gen/apple -name "*.ipa" 2>/dev/null | head -n 1 || true)
           if [ -n "$IPA_PATH" ] && [ -f "$IPA_PATH" ]; then
             echo "=== 发现生成的 IPA: $IPA_PATH ==="
-            cp "$IPA_PATH" "artifacts/HGhub_${V}_ios.ipa"
+            cp "$IPA_PATH" "artifacts/HG_Jugenzhao_${V}_ios.ipa"
           fi
 
           # 4. 若未直接生成 IPA，寻找 .app 或通过 xcodebuild 归档编译
-          if [ ! -s "artifacts/HGhub_${V}_ios.ipa" ]; then
+          if [ ! -s "artifacts/HG_Jugenzhao_${V}_ios.ipa" ]; then
             APP_PATH=$(find src-tauri/gen/apple -name "*.app" -type d 2>/dev/null | head -n 1 || true)
             if [ -z "$APP_PATH" ]; then
               echo "=== 未在 gen/apple 找到 .app，调用 xcodebuild 编译 Release ==="
@@ -119,7 +119,7 @@ jobs:
               rm -rf Payload
               mkdir -p Payload
               cp -r "$APP_PATH" Payload/
-              zip -qr "artifacts/HGhub_${V}_ios.ipa" Payload
+              zip -qr "artifacts/HG_Jugenzhao_${V}_ios.ipa" Payload
               rm -rf Payload
             fi
           fi
@@ -149,7 +149,7 @@ jobs:
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4
         with:
-          name: HGhub-iOS-IPA
+          name: HG_Jugenzhao_iOS_${{ steps.ver.outputs.version }}
           path: artifacts/*
           if-no-files-found: error
 
@@ -160,7 +160,7 @@ jobs:
         run: |
           V="${{ steps.ver.outputs.version }}"
           TAG="v${V}-ios"
-          NOTES="## HGhub iOS 增强版 (v${V})
+          NOTES="## HG_JUGENZHAO iOS (${V})
 
           ### ✨ 核心特性
           - **多档位 GPU 实时视频超分引擎（WebGL2 / Apple Metal）**：针对低码率片源提供「自然清透 / 影院质感 / 超清锐利 / 漫剧锐线 / 二次元重绘 / 原画直通」6 大可实时直达切换的画质档位（支持零涂抹保纹理 AI/3D 漫剧锐线、播放及暂停静帧瞬时对比、像素健康自检与硬件卷积零黑屏回退）。
@@ -175,16 +175,16 @@ jobs:
           - **多线路与镜像测速**：内置固定主备线路 + 自动抓取最新镜像域名 + 一键延迟测速切换。
 
           ### 📲 安装说明（免证书生产包 \`.ipa\`）
-          1. **TrollStore（巨魔商店）**：下载 \`HGhub_${V}_ios.ipa\` 后直接导入巨魔永久安装。
+          1. **TrollStore（巨魔商店）**：下载 \`HG_Jugenzhao_${V}_ios.ipa\` 后直接导入巨魔永久安装。
           2. **AltStore / SideStore / Sideloadly**：使用个人 Apple ID 自签安装。
           3. **轻松签（ESign）/ 牛蛙助手 / Feather / 全能签**：导入证书签名后直接安装。"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" artifacts/*.ipa --clobber
-            gh release edit "$TAG" --title "HGhub v${V} iOS 正式版" --notes "$NOTES" --prerelease=false --latest
+            gh release edit "$TAG" --title "HG_JUGENZHAO ${V} iOS 正式版" --notes "$NOTES" --prerelease=false --latest
           else
             gh release create "$TAG" artifacts/*.ipa \
-              --title "HGhub v${V} iOS 正式版" \
+              --title "HG_JUGENZHAO ${V} iOS 正式版" \
               --notes "$NOTES" \
               --latest
           fi
