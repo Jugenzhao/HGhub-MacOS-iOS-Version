@@ -344,9 +344,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!el) return;
     const h = el.clientHeight || 1;
     const i = Math.max(0, Math.min(videoIds.length - 1, Math.round(el.scrollTop / h)));
+    if (i > index && kind === "video") {
+      const nextEp = details[curId]?.episodes.find((episode) => episode.ep_num === curEp + 1);
+      if (nextEp) {
+        el.scrollTo({ top: index * h, behavior: "smooth" });
+        pickEp(nextEp.ep_num);
+        return;
+      }
+    }
     setIndex((prev) => (prev === i ? prev : i));
     if (onNearEnd && i >= videoIds.length - 3) onNearEnd();
-  }, [videoIds.length, onNearEnd, fs]);
+  }, [videoIds.length, onNearEnd, fs, index, kind, details, curId, curEp]);
 
   const go = useCallback((delta: number) => {
     const el = boxRef.current;
