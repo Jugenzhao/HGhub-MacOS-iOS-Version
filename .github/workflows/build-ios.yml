@@ -53,8 +53,9 @@ jobs:
       - name: 初始化 iOS Xcode 工程
         run: |
           pnpm tauri ios init --ci || pnpm tauri ios init
-          # 确保 iOS Info.plist（含 ~iphone / ~ipad 变体）支持横竖屏切换及 ATS
+          # 确保 iOS Info.plist 设置应用名称、支持横竖屏切换及 ATS
           for plist in $(find src-tauri/gen/apple -name "Info.plist" 2>/dev/null); do
+            /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName HG_JUGENZHAO" "$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string HG_JUGENZHAO" "$plist"
             for key in "UISupportedInterfaceOrientations" "UISupportedInterfaceOrientations~iphone" "UISupportedInterfaceOrientations~ipad"; do
               /usr/libexec/PlistBuddy -c "Delete :${key}" "$plist" 2>/dev/null || true
               /usr/libexec/PlistBuddy -c "Add :${key} array" "$plist"

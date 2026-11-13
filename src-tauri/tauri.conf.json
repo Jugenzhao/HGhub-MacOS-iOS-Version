@@ -45,10 +45,7 @@
       "minSdkVersion": 24
     },
     "iOS": {
-      "developmentTeam": "ABCDE12345",
-      "infoPlist": {
-        "CFBundleDisplayName": "HG_JUGENZHAO"
-      }
+      "developmentTeam": "ABCDE12345"
     }
   }
 }
