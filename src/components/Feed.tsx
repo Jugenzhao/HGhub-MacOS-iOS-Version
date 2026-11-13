@@ -153,7 +153,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [barPct, setBarPct] = useState<number | null>(null);
   const gesture = useRef<{
     x: number; y: number; startX: number; startY: number; t: number; timer: number | null;
-    mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
+    mode: "idle" | "hold" | "scrub" | "episode" | "pan"; base: number; width: number; playing: boolean;
   } | null>(null);
 
   const curId = videoIds[index];
@@ -341,21 +341,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 滚动定位（全屏或缩放手势期间锁定索引，避免容器尺寸变化误触发翻页） */
   const onScroll = useCallback(() => {
-    if (fs || pinchRef.current) return;
+    if (pinchRef.current) return;
     const el = boxRef.current;
     if (!el) return;
-    const h = el.clientHeight || 1;
-    const i = Math.max(0, Math.min(videoIds.length - 1, Math.round(el.scrollTop / h)));
     if (episodeSwipeLock.current) {
-      if (Math.abs(el.scrollTop - index * h) < 2) episodeSwipeLock.current = false;
+      if (!fs) {
+        const h = el.clientHeight || 1;
+        if (Math.abs(el.scrollTop - index * h) < 2) episodeSwipeLock.current = false;
+      }
       return;
     }
-    if (i > index && kind === "video") {
-      const nextEp = details[curId]?.episodes.find((episode) => episode.ep_num === curEp + 1);
-      if (nextEp) {
+    if (fs) return;
+    const h = el.clientHeight || 1;
+    const i = Math.max(0, Math.min(videoIds.length - 1, Math.round(el.scrollTop / h)));
+    if (kind === "video" && i !== index) {
+      const step = i > index ? 1 : -1;
+      const targetEp = curEp + step;
+      const target = details[curId]?.episodes.find((episode) => episode.ep_num === targetEp);
+      if (target) {
         episodeSwipeLock.current = true;
         el.scrollTo({ top: index * h, behavior: "smooth" });
-        pickEp(nextEp.ep_num);
+        pickEp(target.ep_num);
         if (episodeSwipeUnlockTimer.current != null) window.clearTimeout(episodeSwipeUnlockTimer.current);
         episodeSwipeUnlockTimer.current = window.setTimeout(() => {
           episodeSwipeLock.current = false;
@@ -601,7 +607,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY,
       t: Date.now(), base: time, width: span,
       playing: videoRef.current?.el()?.paused === false,
-      mode: "idle" as "idle" | "hold" | "scrub" | "pan",
+      mode: "idle" as "idle" | "hold" | "scrub" | "episode" | "pan",
       timer: window.setTimeout(() => {
         const cur = gesture.current;
         if (!cur || cur.mode !== "idle" || pinchRef.current) return;
@@ -645,10 +651,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         clearTapTimer();
         if (g.timer) window.clearTimeout(g.timer);
         g.mode = "scrub";
-      } else if (Math.abs(dy) > 16) {
+      } else if (Math.abs(dy) > 32) {
         clearTapTimer();
         if (g.timer) window.clearTimeout(g.timer);
-        g.mode = "pan";
+        g.mode = fs ? "episode" : "pan";
+      } else if (fs && Date.now() - g.t > 120 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+        clearTapTimer();
+        if (g.timer) window.clearTimeout(g.timer);
+        g.mode = "episode";
       }
       return;
     }
@@ -690,6 +700,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         videoRef.current?.seek(target, "mobile_gesture");
       }
       if (g.playing && active) videoRef.current?.play();
+      return;
+    }
+    if (g.mode === "episode") {
+      if (!cancelled && e) {
+        const rawDy = e.clientY - g.startY;
+        const swipeUp = rotated ? e.clientX > g.startX : rawDy < -48;
+        const swipeDown = rotated ? e.clientX < g.startX : rawDy > 48;
+        if (swipeUp) changeEpisodeBySwipe(1);
+        else if (swipeDown) changeEpisodeBySwipe(-1);
+      }
       return;
     }
 
@@ -828,6 +848,19 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const on = toggleFollowLocal(uid);
     toast(on ? `已关注 ${detail?.author?.name}` : "已取消关注", on ? "ok" : "info");
     if (requireLogin()) api.follow(uid, on).catch(() => {});
+  };
+
+  const changeEpisodeBySwipe = (direction: -1 | 1) => {
+    if (kind !== "video" || !active || episodeSwipeLock.current) return;
+    const target = episodes.find((episode) => episode.ep_num === curEp + direction);
+    if (!target) return;
+    episodeSwipeLock.current = true;
+    pickEp(target.ep_num);
+    if (episodeSwipeUnlockTimer.current != null) window.clearTimeout(episodeSwipeUnlockTimer.current);
+    episodeSwipeUnlockTimer.current = window.setTimeout(() => {
+      episodeSwipeLock.current = false;
+      episodeSwipeUnlockTimer.current = null;
+    }, 700);
   };
 
   const pickEp = (ep: number) => {
