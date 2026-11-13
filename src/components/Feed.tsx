@@ -54,6 +54,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [controlsLocked, setControlsLocked] = useState(false);
   const [rate, setRate] = useState(1);
   const [waiting, setWaiting] = useState(false);
+  const [episodeTransition, setEpisodeTransition] = useState(false);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
   const [descOpen, setDescOpen] = useState(false);
@@ -447,11 +448,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 切换条目/集数时重置播放与缩放状态 */
   useEffect(() => {
+    setEpisodeTransition(fs && kind === "video");
     setTime(0); setDuration(0); setBuffered(0); setErr(""); setWaiting(true); setPaused(false); setDescOpen(false);
     setVsize({ w: 0, h: 0 });
     setPortraitFit("contain");
     setZoom({ scale: 1, x: 0, y: 0, gesturing: false });
   }, [playKey]);
+
+  useEffect(() => {
+    if (!episodeTransition) return undefined;
+    const timer = window.setTimeout(() => setEpisodeTransition(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [episodeTransition, playKey]);
 
   /* 进出全屏时复位双指缩放并校准滚动条位置 */
   useEffect(() => {
@@ -919,6 +927,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     onPointerUp={(e) => onUp(e, false)}
                     onPointerCancel={(e) => onUp(e, true)}
                     onLostPointerCapture={(e) => onUp(e, true)}>
+                    {episodeTransition && fs && (
+                      <div className="absolute inset-0 z-[5] bg-black/80 backdrop-blur-sm transition-opacity duration-200 pointer-events-none" />
+                    )}
                     <VideoSurface
                       ref={videoRef}
                       src={playUrl}
@@ -938,7 +949,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                       onTime={onTimeTick}
                       onDuration={onDurationTick}
                       onSize={(w, h) => setVsize({ w, h })}
-                      onPlaying={() => { setPaused(false); setWaiting(false); setErr(""); }}
+                      onPlaying={() => { setPaused(false); setWaiting(false); setEpisodeTransition(false); setErr(""); }}
                       onPause={() => setPaused(true)}
                       onWaiting={() => setWaiting(true)}
                       onEnded={() => { const next = episodes.find((e) => e.ep_num === curEp + 1); if (next) pickEp(next.ep_num); }}
@@ -1034,6 +1045,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                           top: rotated ? 16 : vpLandscape ? "max(env(safe-area-inset-top, 0px), 18px)" : "calc(var(--sat, 0px) + 8px)",
                           right: rotated ? 20 : vpLandscape ? "max(env(safe-area-inset-right, 0px), 24px)" : 16,
                         }}>
+                        {kind === "video" && <span className="h-9 px-3 rounded-full backdrop-blur-md flex items-center hg-chip-strong hg-ink-2 text-[12px] font-semibold tabular-nums">第 {curEp} 集</span>}
                         <div data-sr-slot className="relative">
                           <button
                             type="button"
