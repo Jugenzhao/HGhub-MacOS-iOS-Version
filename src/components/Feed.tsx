@@ -37,6 +37,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<VideoHandle>(null);
+  const episodeSwipeLock = useRef(false);
+  const episodeSwipeUnlockTimer = useRef<number | null>(null);
   const [index, setIndex] = useState(startIndex);
   const [epMap, setEpMap] = useState<Record<number, number>>(() => (startEp ? { [videoIds[startIndex]]: startEp } : {}));
   const [details, setDetails] = useState<Record<number, Detail>>({});
@@ -344,17 +346,31 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!el) return;
     const h = el.clientHeight || 1;
     const i = Math.max(0, Math.min(videoIds.length - 1, Math.round(el.scrollTop / h)));
+    if (episodeSwipeLock.current) {
+      if (Math.abs(el.scrollTop - index * h) < 2) episodeSwipeLock.current = false;
+      return;
+    }
     if (i > index && kind === "video") {
       const nextEp = details[curId]?.episodes.find((episode) => episode.ep_num === curEp + 1);
       if (nextEp) {
+        episodeSwipeLock.current = true;
         el.scrollTo({ top: index * h, behavior: "smooth" });
         pickEp(nextEp.ep_num);
+        if (episodeSwipeUnlockTimer.current != null) window.clearTimeout(episodeSwipeUnlockTimer.current);
+        episodeSwipeUnlockTimer.current = window.setTimeout(() => {
+          episodeSwipeLock.current = false;
+          episodeSwipeUnlockTimer.current = null;
+        }, 700);
         return;
       }
     }
     setIndex((prev) => (prev === i ? prev : i));
     if (onNearEnd && i >= videoIds.length - 3) onNearEnd();
   }, [videoIds.length, onNearEnd, fs, index, kind, details, curId, curEp]);
+
+  useEffect(() => () => {
+    if (episodeSwipeUnlockTimer.current != null) window.clearTimeout(episodeSwipeUnlockTimer.current);
+  }, []);
 
   const go = useCallback((delta: number) => {
     const el = boxRef.current;
